@@ -103,7 +103,16 @@ public sealed class Frame : IDisposable
 
 ## 2단계 — 가상 소스 구현 (1일)
 
-- [ ] [로컬] `WebcamCamera` / `WebcamProvider` — OpenCvSharp `VideoCapture`, 별도 획득 스레드
+- [x] [로컬] `WebcamCamera` / `WebcamProvider` — OpenCvSharp `VideoCapture`, 별도 획득 스레드
+  - DirectShow 전용. MSMF는 APC940 실측에서 Open 14초, 노출 미반영, 해상도 변경 시 크래시로 제외
+  - 열거: `ICreateDevEnum` COM 열거(이름·장치 경로). DeviceId = 장치 경로, Open 시 재열거로 현재 CAP_DSHOW 인덱스 확인
+  - `DeviceThread`(actor)가 VideoCapture·DirectShow 필터를 Open~Close 동안 독점. 파라미터 접근은 명령 큐로 마샬링(대기 최대 1프레임), 장치 스레드에서 호출 시 인라인 실행
+  - 노출·게인·기타 UVC 컨트롤은 `IAMCameraControl`/`IAMVideoProcAmp` 직접 호출(GetRange로 범위·`IsAvailable`, 자동/수동 플래그). OpenCV는 스트리밍만 담당
+  - ExposureTime(µs) ↔ log2 초 단계 변환, SFNC 규약대로 `ExposureAuto`=Continuous 동안 값 쓰기 불가. Gain은 장치 단위(`raw`)
+  - Software 트리거는 에뮬레이션(연속 읽기 + 트리거 이후 첫 프레임만 발행). FrameId는 발행 카운터(웹캠은 block ID 없음 → 카메라측 드롭 측정 불가)
+  - `AcquisitionFrameRate`는 DSHOW가 협상값을 보고하지 않아 `IsAvailable=false`. APC940: YUY2 고정, 640×480 30fps / 720p 10fps / 1080p 4.8fps
+  - 연속 읽기 실패가 `DisconnectTimeout`(기본 2초) 지속 시 `ErrorOccurred(Disconnected)` + `Faulted`
+  - 테스트: `tests/CamBridge.Tests.Windows`(net8.0-windows, CI 제외, 웹캠 없으면 장치 테스트 Skip) — `dotnet test tests/CamBridge.Tests.Windows`
 - [x] [클라우드] `ImageFolderCamera` / `ImageFolderProvider` — 폴더 이미지를 지정 FPS로 순환 재생, 소프트웨어 트리거 시 한 장씩 출력
   - Open 시 전량 디코딩(상한 `MaxMemoryBytes`, 기본 1GB), 모든 이미지 동일 크기 필수(센서와 동일한 제약), 파일명 서수 정렬 순서로 재생
   - 전용 획득 스레드. Free-run은 `AcquisitionFrameRate` 주기(코스 Sleep + 마지막 2ms 스핀, 지연 시 몰아내기 없음), Software 트리거는 1회당 1장
@@ -224,8 +233,12 @@ public sealed class Frame : IDisposable
 
 ### B. 2단계 로컬 — 웹캠
 
-- [ ] `WebcamCamera` / `WebcamProvider` (`net8.0-windows`). `ImageFolderCamera`를 참고 구현으로 사용(상태 전이, 파라미터 예외 규약, 획득 스레드, 프레임 소유권)
-- [ ] 노출·게인은 `VideoCapture` 백엔드(MSMF/DSHOW)별 지원이 달라 `IsAvailable` 판정 필요
+- [x] `WebcamCamera` / `WebcamProvider` (`net8.0-windows`). `ImageFolderCamera`를 참고 구현으로 사용(상태 전이, 파라미터 예외 규약, 획득 스레드, 프레임 소유권)
+  - 2026-10-27 로컬(APC940): Windows 테스트 30/30 통과(3회 반복), 기존 93/93 통과
+- [x] 노출·게인은 `VideoCapture` 백엔드(MSMF/DSHOW)별 지원이 달라 `IsAvailable` 판정 필요
+  - DSHOW 전용 + COM `GetRange` HRESULT로 판정(재설정 성공 여부는 신뢰 불가 — 미지원 AutoExposure도 Set이 True 반환)
+- [ ] 로컬 검증 필요: 획득 중 USB 분리 → `Disconnected` + `Faulted` 전환, 재연결 후 Close/Open 복구 (수동 확인)
+- 참고: 비정상 종료 직후 드라이버가 노출 설정을 무시하는 상태가 1회 관측됨. 재연결로 해소, 재현 안 됨
 
 ### C. 3단계 — pylon 에뮬레이터
 
