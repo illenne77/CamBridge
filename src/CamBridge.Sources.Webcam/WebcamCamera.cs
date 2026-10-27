@@ -432,9 +432,18 @@ public sealed class WebcamCamera : ICamera
 
         // Only triggers issued before this read started may claim its frame.
         int pendingBefore = Volatile.Read(ref _pendingTriggers);
+        long readStart = Stopwatch.GetTimestamp();
         if (!capture.Read(image) || image.Empty())
         {
             OnReadFailed();
+            return;
+        }
+
+        // A slow "successful" read is how an unplugged device shows up (stale buffer returned
+        // after the backend's wait timeout); confirm the device before publishing anything.
+        if (Stopwatch.GetElapsedTime(readStart) >= _options.SlowReadThreshold && !DirectShowDevices.IsPresent(Info.DeviceId))
+        {
+            OnDisconnected($"Webcam '{Info.Model}' was removed.");
             return;
         }
 
@@ -466,14 +475,19 @@ public sealed class WebcamCamera : ICamera
         }
         else if (Stopwatch.GetElapsedTime(_failingSince, now) >= _options.DisconnectTimeout)
         {
-            _device!.Pump = null;
-            RaiseError(CameraErrorKind.Disconnected,
+            OnDisconnected(
                 $"Webcam '{Info.Model}' stopped delivering frames for {_options.DisconnectTimeout.TotalSeconds:0.#} s; it may have been unplugged.");
-            SetState(CameraState.Faulted);
             return;
         }
 
         Thread.Sleep(ReadRetryDelay); // Read can fail immediately; do not spin.
+    }
+
+    private void OnDisconnected(string message)
+    {
+        _device!.Pump = null;
+        RaiseError(CameraErrorKind.Disconnected, message + " Close and reopen the camera after reconnecting it.");
+        SetState(CameraState.Faulted);
     }
 
     private void Emit(Mat image)

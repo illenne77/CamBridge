@@ -114,6 +114,14 @@ public sealed class WebcamCameraDeviceTests : IAsyncLifetime
     }
 
     [WebcamFact]
+    public void IsPresent_MatchesConnectedDeviceOnly()
+    {
+        Assert.True(DirectShowDevices.IsPresent(Camera.Info.DeviceId));
+        Assert.True(DirectShowDevices.IsPresent(Camera.Info.DeviceId.ToUpperInvariant()));
+        Assert.False(DirectShowDevices.IsPresent(@"\\?\usb#vid_0000&pid_0000#missing"));
+    }
+
+    [WebcamFact]
     public async Task OpenClose_TransitionsStateAndDescribesControls()
     {
         var states = new ConcurrentQueue<CameraState>();

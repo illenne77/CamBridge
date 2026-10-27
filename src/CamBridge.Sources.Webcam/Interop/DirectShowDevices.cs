@@ -30,6 +30,19 @@ internal static class DirectShowDevices
         return devices;
     }
 
+    /// <summary>True while a device with this id is in the video input category (cheap: no filter is bound).</summary>
+    public static bool IsPresent(string deviceId)
+    {
+        bool found = false;
+        ForEachMoniker((index, moniker) =>
+        {
+            (string name, string path) = ReadProperties(moniker);
+            found = string.Equals(new DirectShowDevice(index, name, path).DeviceId, deviceId, StringComparison.OrdinalIgnoreCase);
+            return found;
+        });
+        return found;
+    }
+
     /// <summary>
     /// Finds the device by id and binds a separate filter instance for its UVC controls.
     /// Returns null when the device is not present. The caller releases the filter with
