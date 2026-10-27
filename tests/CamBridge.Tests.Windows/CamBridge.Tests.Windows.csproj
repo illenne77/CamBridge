@@ -28,6 +28,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CamBridge.Core\CamBridge.Core.csproj" />
     <ProjectReference Include="..\..\src\CamBridge.Sources.Webcam\CamBridge.Sources.Webcam.csproj" />
+    <ProjectReference Include="..\..\src\CamBridge.App\CamBridge.App.csproj" />
   </ItemGroup>
 
 </Project>

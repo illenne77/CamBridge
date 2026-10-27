@@ -191,12 +191,17 @@ public sealed class Frame : IDisposable
 
 ## 6단계 — UI 완성 (2일)
 
-- [ ] 카메라 선택·연결 패널 (벤더 구분 표시)
-- [ ] 라이브뷰 (확대/축소, 픽셀 좌표·값 표시)
+설계: UI 갱신은 전부 pull(라이브뷰·검사 결과는 렌더 틱, 통계·로그는 4Hz 타이머). 카메라·파이프라인 스레드에서 Dispatcher 호출 없음. 진행 단위 6a(뼈대·라이브뷰·통계·로깅) → 6b(파라미터) → 6c(검사·ROI·레시피 교체).
+
+- [x] 카메라 선택·연결 패널 (벤더 구분 표시) — 6a. `CameraRegistry` 열거를 Provider `VendorName`으로 그룹 표시, 열거 실패 Provider는 경고로 표시
+- [x] 라이브뷰 (확대/축소, 픽셀 좌표·값 표시) — 6a. `LiveView` 컨트롤: `CompositionTarget.Rendering`에서 `TryTake` → `WriteableBitmap`, 휠 줌(커서 기준)·드래그 팬·더블클릭 Fit·1:1, 확대 시 NearestNeighbor, 커서 픽셀 값(Gray/RGB). 변환 계산은 `ViewTransform`(단위 테스트)
+  - 2026-10-27 로컬: ImageFolder(수신 31 / 표시 29fps), 웹캠 APC940(수신 30.5 / 표시 29.8fps) 드롭 0. 획득 중 창 닫기 → 정상 종료(코드 0)
+  - 로컬 검증 필요: 줌·팬·픽셀 값 표시의 마우스 조작 (UI Automation으로는 확인하지 않음)
 - [ ] 파라미터 패널 (노출·게인·트리거 + 고급 파라미터 목록)
 - [ ] ROI 마우스 드로잉 및 편집
 - [ ] 검사 결과 오버레이 (OK 녹색 / NG 빨강), 누적 OK/NG 카운트
-- [ ] 통계 상태바 (FPS, 드롭, 큐 길이) 상시 표시
+- [x] 통계 상태바 (FPS, 드롭, 큐 길이) 상시 표시 — 6a. 상태, 수신 FPS·누적, 표시 FPS·건너뜀, 총 드롭(카메라측), 소비자별 처리 FPS·큐·드롭·오류
+- [x] 로깅 (콘솔 + 파일 + UI 로그 줄) — 6a. `FileLoggerProvider`(일별 파일, 백그라운드 Channel로 I/O), `MemoryLogProvider`(최근 200줄, UI가 버전 폴링)
 
 **완료 기준**: 처음 보는 사람에게 시연 가능한 화면
 
