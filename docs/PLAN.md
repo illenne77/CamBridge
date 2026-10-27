@@ -236,7 +236,7 @@ public sealed class Frame : IDisposable
 ## 7단계 — 포트폴리오 포장 (1일)
 
 - [x] README: 기능, 구조 다이어그램, 실행 방법, 확장 방법(새 벤더 추가 절차) — Mermaid 구조도, 설계 원칙별 구현, 30분 측정 결과 포함. 시연 GIF 자리는 비워 둠
-- [ ] 에뮬레이터 + 이미지 폴더 기반 시연 GIF
+- [x] 에뮬레이터 + 이미지 폴더 기반 시연 GIF — `docs/media/inspection.gif`(판정·ROI 편집), `multivendor.gif`(폴더 → pylon 에뮬레이터 전환, 파라미터). UI Automation 녹화, 768x480 8fps. 웹캠 영상은 사생활 보호를 위해 제외
 - [ ] GitHub 공개
 
 **완료 기준**: README만 보고 기능과 구조를 이해할 수 있음
