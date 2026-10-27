@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+  </PropertyGroup>
+
+  <!--
+    Basler pylon .NET API is referenced only when the SDK is installed, so the solution
+    builds on machines (and CI) without pylon. SDK binaries are never committed.
+
+    Override the assembly location with:
+      dotnet build -p:PylonNetAssembly="<path>\Basler.Pylon.dll"
+
+    The default below is derived from PYLON_DEV_DIR and has NOT been verified against an
+    installed SDK yet (see docs/PLAN.md, step 0 "local verification").
+  -->
+  <PropertyGroup>
+    <PylonNetAssembly Condition="'$(PylonNetAssembly)' == '' and '$(PYLON_DEV_DIR)' != ''">$(PYLON_DEV_DIR)\Assemblies\Basler.Pylon\x64\Basler.Pylon.dll</PylonNetAssembly>
+    <HasPylon>false</HasPylon>
+    <HasPylon Condition="'$(PylonNetAssembly)' != '' and Exists('$(PylonNetAssembly)')">true</HasPylon>
+    <DefineConstants Condition="'$(HasPylon)' == 'true'">$(DefineConstants);HAS_PYLON</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(HasPylon)' == 'true'">
+    <Reference Include="Basler.Pylon">
+      <HintPath>$(PylonNetAssembly)</HintPath>
+      <!-- The SDK installs its own runtime; do not copy the assembly into build output. -->
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CamBridge.Core\CamBridge.Core.csproj" />
+  </ItemGroup>
+
+  <Target Name="ReportPylonAvailability" BeforeTargets="CoreCompile">
+    <Message Importance="high" Condition="'$(HasPylon)' == 'true'" Text="CamBridge.Sources.Pylon: pylon SDK found at $(PylonNetAssembly)" />
+    <Message Importance="high" Condition="'$(HasPylon)' != 'true'" Text="CamBridge.Sources.Pylon: pylon SDK not found, building without pylon support" />
+  </Target>
+
+</Project>

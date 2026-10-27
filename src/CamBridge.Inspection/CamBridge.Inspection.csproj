@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Managed API only. Native runtimes are referenced by executable projects (App, Tests). -->
+    <PackageReference Include="OpenCvSharp4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CamBridge.Core\CamBridge.Core.csproj" />
+  </ItemGroup>
+
+</Project>

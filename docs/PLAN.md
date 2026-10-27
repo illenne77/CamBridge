@@ -13,12 +13,22 @@
 
 ## 0단계 — 환경 준비 (0.5일)
 
-- [ ] [클라우드] 솔루션 및 프로젝트 골격 생성 (`CLAUDE.md`의 구조와 대상 프레임워크대로)
-- [ ] [클라우드] NuGet 패키지 추가: CommunityToolkit.Mvvm, OpenCvSharp4(+ OS별 런타임 조건부 참조), xUnit
+- [x] [클라우드] 솔루션 및 프로젝트 골격 생성 (`CLAUDE.md`의 구조와 대상 프레임워크대로)
+- [x] [클라우드] NuGet 패키지 추가: CommunityToolkit.Mvvm, OpenCvSharp4(+ OS별 런타임 조건부 참조), xUnit
+  - 버전은 `Directory.Packages.props`(중앙 패키지 관리)에서 일괄 관리
+  - 라이브러리는 `OpenCvSharp4` 관리 코드만, 네이티브 런타임은 실행 프로젝트(App: win, Tests: OS별)에만 참조
+  - OpenCvSharp4 4.13+의 분석기는 Roslyn 4.14 이상을 요구(구버전 SDK에서 CS9057) → `Directory.Build.targets`에서 제거
 - [x] `.gitignore` 기본 설정, `README.md` 초안 (초기 커밋에 포함)
-- [ ] [클라우드] `Directory.Build.props`(공통 설정, nullable, 경고 수준, Windows 프로젝트의 `EnableWindowsTargeting`)
-- [ ] [클라우드] GitHub Actions: `net8.0` 프로젝트 빌드·테스트 (선택)
+- [x] [클라우드] `Directory.Build.props`(공통 설정, nullable, 경고 수준, Windows 프로젝트의 `EnableWindowsTargeting`)
+- [x] [클라우드] GitHub Actions: `net8.0` 프로젝트 빌드·테스트 (선택) — `.github/workflows/ci.yml`
 - [ ] [로컬] Basler pylon SDK 설치 확인 및 .NET API 참조 경로 확인 (개발자가 설치)
+  - **로컬 검증 필요**: `CamBridge.Sources.Pylon.csproj`의 기본 경로
+    `$(PYLON_DEV_DIR)\Assemblies\Basler.Pylon\x64\Basler.Pylon.dll`은 추정값. 실제 설치 경로 확인 후 수정
+    (임시로 `dotnet build -p:PylonNetAssembly=<경로>`로 지정 가능). SDK 감지 시 빌드 로그에 `pylon SDK found` 출력, `HAS_PYLON` 상수 정의
+- [ ] [로컬] Windows에서 `dotnet build CamBridge.sln`, `dotnet test`, WPF 빈 창 실행 확인 (**로컬 검증 필요**)
+
+클라우드 검증 결과(Linux, Microsoft 빌드 .NET SDK 8.0.427): 솔루션 전체(WPF 포함) 빌드 성공, 경고 0, 테스트 1/1 통과(OpenCV Linux 네이티브 런타임 로드 확인).
+참고: Ubuntu 기본 apt의 source-built SDK에는 WindowsDesktop SDK가 없어 WPF 프로젝트가 빌드되지 않는다. Microsoft 빌드 SDK가 필요하다.
 
 **완료 기준**: 빈 솔루션 빌드 성공, 첫 커밋
 

@@ -17,6 +17,18 @@
 - Windows 10/11 (WPF 앱, 웹캠, pylon 연동)
 - Basler pylon 연동 시: [Basler pylon SDK](https://www.baslerweb.com/) 별도 설치 (이 저장소에는 SDK 파일을 포함하지 않습니다)
 
+## 빌드
+
+```
+dotnet build CamBridge.sln
+dotnet test tests/CamBridge.Tests
+```
+
+- pylon SDK가 없어도 솔루션은 빌드됩니다. 이 경우 `CamBridge.Sources.Pylon`은 pylon 지원 없이 빌드됩니다.
+- pylon SDK를 설치했다면 `PYLON_DEV_DIR` 환경변수를 기준으로 자동 감지합니다. 경로가 다르면 다음처럼 지정합니다.
+  `dotnet build -p:PylonNetAssembly="<경로>\Basler.Pylon.dll"`
+- Linux에서도 `EnableWindowsTargeting`으로 Windows 프로젝트까지 컴파일할 수 있습니다(실행은 Windows 전용). 단, Microsoft 빌드 .NET SDK가 필요합니다. 배포판의 source-built SDK에는 WPF 빌드 구성 요소가 없습니다.
+
 ## 진행 상황
 
 작업 계획과 진행 상황은 [docs/PLAN.md](docs/PLAN.md)를 참고하세요.
