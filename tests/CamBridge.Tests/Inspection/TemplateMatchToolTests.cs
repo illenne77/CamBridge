@@ -1,4 +1,5 @@
 using CamBridge.Inspection;
+using CamBridge.SampleGenerator;
 using CamBridge.Inspection.Tools;
 using OpenCvSharp;
 

@@ -103,10 +103,18 @@ public sealed class Frame : IDisposable
 
 ## 2단계 — 가상 소스 구현 (1일)
 
-- [ ] `WebcamCamera` / `WebcamProvider` — OpenCvSharp `VideoCapture`, 별도 획득 스레드
-- [ ] `ImageFolderCamera` / `ImageFolderProvider` — 폴더 이미지를 지정 FPS로 순환 재생, 소프트웨어 트리거 시 한 장씩 출력
-- [ ] 지원하지 않는 파라미터는 명확한 예외 또는 `IsAvailable=false`로 처리
-- [ ] 검사 시연용 샘플 이미지 준비 (공개 산업 결함 데이터셋 일부를 `samples/`에 배치, 라이선스 확인)
+- [ ] [로컬] `WebcamCamera` / `WebcamProvider` — OpenCvSharp `VideoCapture`, 별도 획득 스레드
+- [x] [클라우드] `ImageFolderCamera` / `ImageFolderProvider` — 폴더 이미지를 지정 FPS로 순환 재생, 소프트웨어 트리거 시 한 장씩 출력
+  - Open 시 전량 디코딩(상한 `MaxMemoryBytes`, 기본 1GB), 모든 이미지 동일 크기 필수(센서와 동일한 제약), 파일명 서수 정렬 순서로 재생
+  - 전용 획득 스레드. Free-run은 `AcquisitionFrameRate` 주기(코스 Sleep + 마지막 2ms 스핀, 지연 시 몰아내기 없음), Software 트리거는 1회당 1장
+  - 노출·게인 디지털 시뮬레이션(LUT, 기준 10000µs / 0dB) — 파라미터 조작이 검사 결과에 반영되는 시연용
+  - 파라미터: ExposureTime, Gain, TriggerMode(Off/Software), TriggerSoftware, AcquisitionFrameRate, PixelFormat(Mono8/Bgr8, 획득 중 변경 불가), Width/Height(읽기 전용), Loop
+  - 획득 시작마다 FrameId 1부터(파이프라인은 카운터 리셋으로 인식, 드롭 아님). 버퍼 풀 주입 가능(`ImageFolderOptions.BufferPool`)
+- [x] 지원하지 않는 파라미터는 명확한 예외 또는 `IsAvailable=false`로 처리 (ImageFolder 기준. 미지원 이름 `KeyNotFoundException`, Hardware 트리거 `ArgumentException`)
+- [x] 검사 시연용 샘플 이미지 준비
+  - 공개 데이터셋 대신 직접 생성(`tools/CamBridge.SampleGenerator`) → 라이선스 문제 없음. `samples/part-inspection/`에 커밋(이미지 20장 OK 15 / NG 5, 레시피, 템플릿)
+  - 재생성: `dotnet run --project tools/CamBridge.SampleGenerator`
+  - 회귀 테스트: 커밋된 샘플을 ImageFolder 카메라 → 파이프라인 → 검사로 흘려 파일명(`_ok`/`_ng`)과 판정 일치 확인
 
 **완료 기준**: 콘솔 또는 임시 UI에서 두 소스 전환하며 프레임 수신 확인
 
@@ -192,6 +200,46 @@ public sealed class Frame : IDisposable
 - [ ] GitHub 공개
 
 **완료 기준**: README만 보고 기능과 구조를 이해할 수 있음
+
+---
+
+## 로컬 Windows 세션 인계 체크리스트
+
+클라우드(Linux)에서 할 수 있는 작업은 0·1·2(ImageFolder)·4·5단계까지 완료. 브랜치 `claude/eager-rubin-59e98b`.
+아래를 위에서부터 순서대로 진행한다.
+
+### A. 환경 확인 (0단계 로컬 항목)
+
+- [ ] .NET 8 SDK 확인(`dotnet --list-sdks`). Visual Studio 2022 또는 SDK 8.0.4xx 이상 권장
+- [ ] `dotnet build CamBridge.sln` — 경고 0 기대. 빌드 로그에 `CamBridge.Sources.Pylon: pylon SDK not found/found` 출력 확인
+- [ ] `dotnet test tests/CamBridge.Tests` — 93개 통과 기대(클라우드 결과). Windows용 OpenCV 런타임(`OpenCvSharp4.runtime.win`) 로드 확인
+  - `DllNotFoundException`(OpenCvSharpExtern)이 나면 Visual C++ 재배포 패키지 설치 여부 확인
+- [ ] `dotnet run --project src/CamBridge.App` — 빈 WPF 창 표시
+- [ ] pylon SDK 설치 후 `Basler.Pylon.dll` 실제 경로 확인 → `src/CamBridge.Sources.Pylon/CamBridge.Sources.Pylon.csproj`의 `PylonNetAssembly` 기본값 수정(현재 `$(PYLON_DEV_DIR)\Assemblies\Basler.Pylon\x64\Basler.Pylon.dll`은 추정값)
+  - 설치판이 NuGet 패키지 형태로 .NET API를 제공하는지도 확인(그렇다면 조건부 PackageReference로 전환 검토)
+
+### B. 2단계 로컬 — 웹캠
+
+- [ ] `WebcamCamera` / `WebcamProvider` (`net8.0-windows`). `ImageFolderCamera`를 참고 구현으로 사용(상태 전이, 파라미터 예외 규약, 획득 스레드, 프레임 소유권)
+- [ ] 노출·게인은 `VideoCapture` 백엔드(MSMF/DSHOW)별 지원이 달라 `IsAvailable` 판정 필요
+
+### C. 3단계 — pylon 에뮬레이터
+
+- [ ] `set PYLON_CAMEMU=2` 후 열거 확인, 노출·게인·트리거·소프트웨어 트리거 매핑, 이름 기반 파라미터 → pylon 파라미터 맵
+- [ ] pylon의 grab 결과 버퍼를 `Frame.Rent` 버퍼로 복사(Core에 SDK 타입 노출 금지). FrameId는 block ID 사용 → 카메라측 드롭 통계에 그대로 반영
+- [ ] 분리·재연결 → `ErrorOccurred(Disconnected)` + `CameraState.Faulted`
+
+### D. 4단계 로컬 — 장시간 실행
+
+- [ ] 에뮬레이터 30분 연속 획득 + 검사 소비자 + 저장 소비자. 작업 관리자/`dotnet-counters`로 프로세스 메모리·GC 힙 추이 확인
+
+### E. 6단계 — UI 연결 메모
+
+- 카메라 목록: `CameraRegistry`(ImageFolder는 `samples/part-inspection/images`를 기본 폴더로 등록)
+- 라이브뷰: `AcquisitionPipeline.LiveView.TryTake()`를 `CompositionTarget.Rendering` 또는 `DispatcherTimer`에서 호출 → `WriteableBitmap`에 복사 후 프레임 Dispose
+- 통계 상태바: `pipeline.GetStatistics()`를 약 4Hz로 폴링(수신 FPS, 소비자별 처리 FPS·큐 길이·드롭, `TotalDroppedFrames`)
+- 검사: `InspectionEngine.Load("samples/part-inspection/part.recipe.json")` + `InspectionConsumer`. `ResultProduced`는 워커 스레드에서 발생 → Dispatcher 마샬링. 오버레이는 `InspectionResult.Overlays`(이미지 좌표)
+- 실행 중 레시피(ROI) 변경: 현재 `InspectionEngine`은 스레드 안전하지 않음 → 새 엔진 생성 후 소비자에서 원자적 교체하는 방식 설계 필요
 
 ---
 

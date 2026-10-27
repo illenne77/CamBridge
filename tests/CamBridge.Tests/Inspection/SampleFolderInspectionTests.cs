@@ -1,5 +1,6 @@
 using CamBridge.Core;
 using CamBridge.Inspection;
+using CamBridge.SampleGenerator;
 using CamBridge.Pipeline;
 using CamBridge.Tests.Fakes;
 using OpenCvSharp;

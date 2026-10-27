@@ -29,6 +29,16 @@ dotnet test tests/CamBridge.Tests
   `dotnet build -p:PylonNetAssembly="<경로>\Basler.Pylon.dll"`
 - Linux에서도 `EnableWindowsTargeting`으로 Windows 프로젝트까지 컴파일할 수 있습니다(실행은 Windows 전용). 단, Microsoft 빌드 .NET SDK가 필요합니다. 배포판의 source-built SDK에는 WPF 빌드 구성 요소가 없습니다.
 
+## 샘플 데이터
+
+`samples/part-inspection/`에 시연용 샘플이 있습니다. 직접 생성한 합성 이미지이므로 라이선스 제약이 없습니다.
+
+- `images/` — 부품 이미지 20장(OK 15 / NG 5). 파일명에 기대 판정(`_ok`, `_ng`)이 들어 있습니다.
+- `part.recipe.json` — 검사 레시피(기준 마크 템플릿 매칭 + 얼룩 블롭 검사)
+- `fiducial.png` — 템플릿 이미지
+
+다시 만들려면 `dotnet run --project tools/CamBridge.SampleGenerator`를 실행합니다.
+
 ## 진행 상황
 
 작업 계획과 진행 상황은 [docs/PLAN.md](docs/PLAN.md)를 참고하세요.

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CamBridge.Inspection;
+using CamBridge.SampleGenerator;
 
 namespace CamBridge.Tests.Inspection;
 

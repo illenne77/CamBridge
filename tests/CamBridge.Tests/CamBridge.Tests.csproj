@@ -29,6 +29,7 @@
     <ProjectReference Include="..\..\src\CamBridge.Pipeline\CamBridge.Pipeline.csproj" />
     <ProjectReference Include="..\..\src\CamBridge.Inspection\CamBridge.Inspection.csproj" />
     <ProjectReference Include="..\..\src\CamBridge.Sources.ImageFolder\CamBridge.Sources.ImageFolder.csproj" />
+    <ProjectReference Include="..\..\tools\CamBridge.SampleGenerator\CamBridge.SampleGenerator.csproj" />
   </ItemGroup>
 
 </Project>

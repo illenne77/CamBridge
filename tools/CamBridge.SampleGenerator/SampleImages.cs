@@ -1,13 +1,13 @@
 using CamBridge.Inspection;
 using OpenCvSharp;
 
-namespace CamBridge.Tests.Inspection;
+namespace CamBridge.SampleGenerator;
 
 /// <summary>
 /// Synthetic part images: a bright textured surface with a fiducial mark (found by template
 /// matching) and optional dark spots (found by the blob tool). Generated, so no dataset license applies.
 /// </summary>
-internal static class SampleImages
+public static class SampleImages
 {
     public const int Width = 320;
     public const int Height = 240;
@@ -16,7 +16,13 @@ internal static class SampleImages
     public static readonly RoiRect FiducialSearchRoi = new(10, 10, 100, 100);
     public static readonly RoiRect DefectRoi = new(130, 60, 160, 140);
 
-    public static Mat Create(bool withFiducial = true, IEnumerable<Point>? defects = null, int defectRadius = 4, int seed = 1)
+    /// <param name="fiducialOffset">Shift of the fiducial from <see cref="FiducialAt"/> (part placement jitter).</param>
+    public static Mat Create(
+        bool withFiducial = true,
+        IEnumerable<Point>? defects = null,
+        int defectRadius = 4,
+        int seed = 1,
+        Point fiducialOffset = default)
     {
         var image = new Mat(Height, Width, MatType.CV_8UC1);
         var random = new Random(seed);
@@ -30,7 +36,7 @@ internal static class SampleImages
 
         if (withFiducial)
         {
-            DrawFiducial(image, FiducialAt.X, FiducialAt.Y);
+            DrawFiducial(image, FiducialAt.X + fiducialOffset.X, FiducialAt.Y + fiducialOffset.Y);
         }
 
         foreach (Point p in defects ?? [])

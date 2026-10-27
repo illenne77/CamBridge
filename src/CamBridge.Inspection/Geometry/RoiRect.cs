@@ -1,10 +1,14 @@
+using System.Text.Json.Serialization;
+
 namespace CamBridge.Inspection;
 
 /// <summary>Axis-aligned rectangle in image pixel coordinates.</summary>
 public readonly record struct RoiRect(int X, int Y, int Width, int Height)
 {
+    [JsonIgnore]
     public int Right => X + Width;
 
+    [JsonIgnore]
     public int Bottom => Y + Height;
 
     /// <summary>True when the rectangle is non-empty and lies completely inside an image of the given size.</summary>
