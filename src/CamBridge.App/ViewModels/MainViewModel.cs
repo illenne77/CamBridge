@@ -5,6 +5,7 @@ using System.Windows.Threading;
 using CamBridge.App.Logging;
 using CamBridge.App.Session;
 using CamBridge.Core;
+using CamBridge.Inspection;
 using CamBridge.Pipeline;
 using CamBridge.Pipeline.Statistics;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -76,7 +77,7 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string? _enumerationMessage;
 
-    public MainViewModel(CameraRegistry registry, ILoggerFactory loggerFactory, MemoryLogProvider memoryLog)
+    public MainViewModel(CameraRegistry registry, ILoggerFactory loggerFactory, MemoryLogProvider memoryLog, string? recipePath = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(loggerFactory);
@@ -87,6 +88,7 @@ public sealed partial class MainViewModel : ObservableObject
         _memoryLog = memoryLog;
         _logger = loggerFactory.CreateLogger<MainViewModel>();
         Parameters = new ParametersViewModel(loggerFactory.CreateLogger<ParametersViewModel>());
+        Inspection = new InspectionViewModel(loggerFactory.CreateLogger<InspectionViewModel>(), recipePath);
         _dispatcher = Dispatcher.CurrentDispatcher;
         _timer = new DispatcherTimer(StatisticsInterval, DispatcherPriority.Background, (_, _) => OnTick(), _dispatcher);
         _timer.Start();
@@ -95,6 +97,8 @@ public sealed partial class MainViewModel : ObservableObject
     public ObservableCollection<CameraItem> Cameras { get; } = [];
 
     public ParametersViewModel Parameters { get; }
+
+    public InspectionViewModel Inspection { get; }
 
     public ObservableCollection<LogEntry> LogEntries { get; } = [];
 
@@ -147,8 +151,22 @@ public sealed partial class MainViewModel : ObservableObject
         CameraInfo info = SelectedCamera!.Info;
         await RunAsync($"{info.DisplayName} 연결 실패", async () =>
         {
-            CameraSession session = await CameraSession.OpenAsync(_registry, info, _loggerFactory);
+            // Without a usable recipe the camera still connects, just without inspection.
+            InspectionEngine? engine = null;
+            try
+            {
+                engine = await Task.Run(Inspection.CreateEngine);
+            }
+#pragma warning disable CA1031 // Reported in the inspection panel; acquisition works without it.
+            catch (Exception ex)
+#pragma warning restore CA1031
+            {
+                Inspection.Message = $"검사 비활성: {ex.Message}";
+            }
+
+            CameraSession session = await CameraSession.OpenAsync(_registry, info, engine, _loggerFactory);
             session.StateChanged += OnSessionStateChanged;
+            Inspection.Attach(session.Inspection);
             Session = session;
             LiveFrames = session.Pipeline.LiveView;
             State = session.State;
@@ -172,6 +190,7 @@ public sealed partial class MainViewModel : ObservableObject
         _timer.Stop();
         await CloseSessionAsync();
         Parameters.Dispose();
+        Inspection.Dispose();
     }
 
     private bool CanRefresh() => !IsBusy;
@@ -215,6 +234,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         session.StateChanged -= OnSessionStateChanged;
         await Parameters.AttachAsync(null);
+        Inspection.Attach(null);
         LiveFrames = null;
         Session = null;
         State = CameraState.Closed;

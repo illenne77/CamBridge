@@ -105,16 +105,15 @@
             </DockPanel>
 
             <!-- Live view -->
-            <views:LiveView Grid.Column="1" Source="{Binding LiveFrames}"
+            <views:LiveView Grid.Column="1" Source="{Binding LiveFrames}" Overlay="{Binding Inspection}"
                             DisplayFps="{Binding DisplayFps, Mode=OneWayToSource}" />
 
-            <!-- The inspection panel arrives in step 6c. -->
             <TabControl Grid.Column="2" Margin="8">
+                <TabItem Header="검사">
+                    <views:InspectionPanel DataContext="{Binding Inspection}" />
+                </TabItem>
                 <TabItem Header="파라미터">
                     <views:ParametersPanel DataContext="{Binding Parameters}" />
-                </TabItem>
-                <TabItem Header="검사">
-                    <TextBlock Margin="8" Foreground="Gray" Text="6c 단계에서 추가" />
                 </TabItem>
             </TabControl>
         </Grid>

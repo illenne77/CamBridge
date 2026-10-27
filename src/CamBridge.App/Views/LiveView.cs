@@ -3,11 +3,14 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using CamBridge.App.Imaging;
 using CamBridge.Core;
+using CamBridge.Inspection;
 using CamBridge.Pipeline;
 using Frame = CamBridge.Core.Frame;
 using WpfPixelFormat = System.Windows.Media.PixelFormat;
@@ -29,7 +32,19 @@ public sealed class LiveView : Control
         nameof(DisplayFps), typeof(double), typeof(LiveView),
         new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
 
+    public static readonly DependencyProperty OverlayProperty = DependencyProperty.Register(
+        nameof(Overlay), typeof(IInspectionOverlay), typeof(LiveView), new PropertyMetadata(null, OnOverlaySettingChanged));
+
+    public static readonly DependencyProperty ShowOverlayProperty = DependencyProperty.Register(
+        nameof(ShowOverlay), typeof(bool), typeof(LiveView),
+        new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, OnOverlaySettingChanged));
+
+    public static readonly DependencyProperty IsRoiEditingProperty = DependencyProperty.Register(
+        nameof(IsRoiEditing), typeof(bool), typeof(LiveView),
+        new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, OnOverlaySettingChanged));
+
     private const double WheelZoomFactor = 1.25;
+    private const double HandleToleranceScreen = 6;
     private static readonly TimeSpan FpsWindow = TimeSpan.FromSeconds(1);
 
     private readonly ViewTransform _transform = new();
@@ -39,9 +54,20 @@ public sealed class LiveView : Control
     private readonly TextBlock _placeholder = new() { Foreground = Brushes.Gray, Text = "영상 없음", HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     private readonly Grid _root = new() { Background = Brushes.Black, ClipToBounds = true };
     private readonly Canvas _canvas = new();
+    private readonly OverlayLayer _overlayLayer = new();
 
     private WriteableBitmap? _bitmap;
     private Point? _panStart;
+    private long _overlayVersion = -1;
+    private bool _overlayDirty = true;
+
+    // ROI drag in progress (edit mode).
+    private int _editIndex = -1;
+    private RoiHandle _editHandle;
+    private bool _editDrawing;
+    private RoiRect _editStartRoi;
+    private (double X, double Y) _editStartImage;
+    private RoiRect _editCurrentRoi;
     private Point? _cursor;
     private long _lastFrameId;
     private int _framesInWindow;
@@ -57,6 +83,7 @@ public sealed class LiveView : Control
         _image.RenderTransform = _imageTransform;
         _canvas.Children.Add(_image);
         _root.Children.Add(_canvas);
+        _root.Children.Add(_overlayLayer);
         _root.Children.Add(_placeholder);
 
         var infoBar = new Border
@@ -69,6 +96,8 @@ public sealed class LiveView : Control
         _root.Children.Add(infoBar);
 
         var toolbar = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(4) };
+        toolbar.Children.Add(ToolbarToggle("오버레이", ShowOverlayProperty));
+        toolbar.Children.Add(ToolbarToggle("ROI 편집", IsRoiEditingProperty));
         toolbar.Children.Add(ToolbarButton("Fit", (_, _) => FitToView()));
         toolbar.Children.Add(ToolbarButton("1:1", (_, _) => ActualSize()));
         _root.Children.Add(toolbar);
@@ -98,6 +127,26 @@ public sealed class LiveView : Control
     {
         get => (double)GetValue(DisplayFpsProperty);
         set => SetValue(DisplayFpsProperty, value);
+    }
+
+    /// <summary>Inspection shapes to draw and ROIs to edit; pulled on the render tick like frames.</summary>
+    public IInspectionOverlay? Overlay
+    {
+        get => (IInspectionOverlay?)GetValue(OverlayProperty);
+        set => SetValue(OverlayProperty, value);
+    }
+
+    public bool ShowOverlay
+    {
+        get => (bool)GetValue(ShowOverlayProperty);
+        set => SetValue(ShowOverlayProperty, value);
+    }
+
+    /// <summary>When true the left button edits ROIs (select, move, resize, draw) instead of panning.</summary>
+    public bool IsRoiEditing
+    {
+        get => (bool)GetValue(IsRoiEditingProperty);
+        set => SetValue(IsRoiEditingProperty, value);
     }
 
     protected override int VisualChildrenCount => 1;
@@ -143,7 +192,18 @@ public sealed class LiveView : Control
             return;
         }
 
-        // Left drag pans for now; ROI editing (6c) will take the left button in edit mode.
+        if (e.ChangedButton == MouseButton.Left && IsRoiEditing)
+        {
+            if (BeginRoiEdit(e.GetPosition(this)))
+            {
+                CaptureMouse();
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        // Left drag pans unless ROI editing; middle drag always pans.
         if (e.ChangedButton is MouseButton.Left or MouseButton.Middle)
         {
             _panStart = e.GetPosition(this);
@@ -164,6 +224,14 @@ public sealed class LiveView : Control
             _panStart = p;
             ApplyTransform();
         }
+        else if (_editIndex >= 0)
+        {
+            ContinueRoiEdit(p);
+        }
+        else if (IsRoiEditing)
+        {
+            Cursor = HoverCursor(p);
+        }
 
         _cursor = p;
         UpdateInfo();
@@ -173,6 +241,14 @@ public sealed class LiveView : Control
     {
         ArgumentNullException.ThrowIfNull(e);
         base.OnMouseUp(e);
+        if (_editIndex >= 0 && e.ChangedButton == MouseButton.Left)
+        {
+            Overlay?.CommitRoi(_editIndex, _editCurrentRoi);
+            _editIndex = -1;
+            ReleaseMouseCapture();
+            return;
+        }
+
         if (_panStart is not null)
         {
             _panStart = null;
@@ -197,20 +273,143 @@ public sealed class LiveView : Control
         }
     }
 
+    private static void OnOverlaySettingChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var view = (LiveView)d;
+        view._overlayDirty = true;
+        if (!view.IsRoiEditing)
+        {
+            view.Cursor = null;
+        }
+    }
+
     private void OnRendering(object? sender, EventArgs e)
     {
         UpdateFps();
 
         Frame? frame = Source?.TryTake();
-        if (frame is null)
+        if (frame is not null)
+        {
+            using (frame)
+            {
+                Draw(frame);
+            }
+        }
+
+        UpdateOverlay();
+    }
+
+    /// <summary>Redraws the overlay only when its content or the view transform changed.</summary>
+    private void UpdateOverlay()
+    {
+        IInspectionOverlay? overlay = ShowOverlay && _bitmap is not null ? Overlay : null;
+        if (overlay is null)
+        {
+            if (_overlayDirty)
+            {
+                _overlayLayer.Show(OverlaySnapshot.Empty, _transform, showHandles: false);
+                _overlayDirty = false;
+            }
+
+            return;
+        }
+
+        long version = overlay.Version;
+        if (version != _overlayVersion || _overlayDirty)
+        {
+            _overlayVersion = version;
+            _overlayDirty = false;
+            _overlayLayer.Show(overlay.GetSnapshot(), _transform, IsRoiEditing);
+        }
+    }
+
+    private bool BeginRoiEdit(Point screen)
+    {
+        if (Overlay is not { } overlay || _bitmap is null)
+        {
+            return false;
+        }
+
+        (double x, double y) = _transform.ToImage(screen.X, screen.Y);
+        (int index, RoiHandle handle) = HitTest(overlay, x, y);
+        if (index >= 0)
+        {
+            overlay.SelectRoi(index);
+            _editDrawing = false;
+            _editHandle = handle;
+        }
+        else if (overlay.SelectedIndex >= 0)
+        {
+            // Empty area: draw a new ROI for the selected tool.
+            index = overlay.SelectedIndex;
+            _editDrawing = true;
+        }
+        else
+        {
+            return false;
+        }
+
+        _editIndex = index;
+        _editStartRoi = overlay.EditableRois[index];
+        _editStartImage = (x, y);
+        _editCurrentRoi = _editStartRoi;
+        return true;
+    }
+
+    private void ContinueRoiEdit(Point screen)
+    {
+        if (Overlay is not { } overlay || _bitmap is null)
         {
             return;
         }
 
-        using (frame)
+        (double x, double y) = _transform.ToImage(screen.X, screen.Y);
+        _editCurrentRoi = _editDrawing
+            ? RoiEditor.FromCorners(_editStartImage.X, _editStartImage.Y, x, y, _bitmap.PixelWidth, _bitmap.PixelHeight)
+            : RoiEditor.Drag(_editStartRoi, _editHandle, x - _editStartImage.X, y - _editStartImage.Y, _bitmap.PixelWidth, _bitmap.PixelHeight);
+        overlay.PreviewRoi(_editIndex, _editCurrentRoi);
+    }
+
+    /// <summary>The selected ROI wins ties so its handles stay grabbable where ROIs overlap.</summary>
+    private (int Index, RoiHandle Handle) HitTest(IInspectionOverlay overlay, double x, double y)
+    {
+        double tolerance = HandleToleranceScreen / _transform.Scale;
+        IReadOnlyList<RoiRect> rois = overlay.EditableRois;
+        int selected = overlay.SelectedIndex;
+        if (selected >= 0 && selected < rois.Count && RoiEditor.HitTest(rois[selected], x, y, tolerance) is var h && h != RoiHandle.None)
         {
-            Draw(frame);
+            return (selected, h);
         }
+
+        for (int i = rois.Count - 1; i >= 0; i--)
+        {
+            RoiHandle handle = RoiEditor.HitTest(rois[i], x, y, tolerance);
+            if (handle != RoiHandle.None)
+            {
+                return (i, handle);
+            }
+        }
+
+        return (-1, RoiHandle.None);
+    }
+
+    private Cursor? HoverCursor(Point screen)
+    {
+        if (Overlay is not { } overlay || _bitmap is null)
+        {
+            return null;
+        }
+
+        (double x, double y) = _transform.ToImage(screen.X, screen.Y);
+        return HitTest(overlay, x, y).Handle switch
+        {
+            RoiHandle.Body => Cursors.SizeAll,
+            RoiHandle.Left or RoiHandle.Right => Cursors.SizeWE,
+            RoiHandle.Top or RoiHandle.Bottom => Cursors.SizeNS,
+            RoiHandle.TopLeft or RoiHandle.BottomRight => Cursors.SizeNWSE,
+            RoiHandle.TopRight or RoiHandle.BottomLeft => Cursors.SizeNESW,
+            _ => overlay.SelectedIndex >= 0 ? Cursors.Cross : null,
+        };
     }
 
     private void Draw(Frame frame)
@@ -280,6 +479,7 @@ public sealed class LiveView : Control
     private void ApplyTransform()
     {
         _imageTransform.Matrix = new Matrix(_transform.Scale, 0, 0, _transform.Scale, _transform.OffsetX, _transform.OffsetY);
+        _overlayDirty = true;
         // Show individual pixels when magnified; smooth when shrunk.
         RenderOptions.SetBitmapScalingMode(_image, _transform.Scale >= 1 ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.Linear);
         UpdateInfo();
@@ -319,6 +519,13 @@ public sealed class LiveView : Control
         _image.Source = null;
         _placeholder.Visibility = Visibility.Visible;
         _info.Text = string.Empty;
+    }
+
+    private ToggleButton ToolbarToggle(string text, DependencyProperty property)
+    {
+        var toggle = new ToggleButton { Content = text, Margin = new Thickness(2, 0, 0, 0), Padding = new Thickness(6, 1, 6, 1), Focusable = false };
+        toggle.SetBinding(ToggleButton.IsCheckedProperty, new Binding(property.Name) { Source = this, Mode = BindingMode.TwoWay });
+        return toggle;
     }
 
     private static Button ToolbarButton(string text, RoutedEventHandler onClick)

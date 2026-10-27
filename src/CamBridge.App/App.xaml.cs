@@ -16,6 +16,7 @@ namespace CamBridge.App;
 public partial class App : Application
 {
     private const string SampleImagesFolder = "samples/part-inspection/images";
+    private const string SampleRecipe = "samples/part-inspection/part.recipe.json";
 
     private FileLoggerProvider? _fileLog;
     private ILoggerFactory? _loggerFactory;
@@ -36,7 +37,7 @@ public partial class App : Application
         DispatcherUnhandledException += OnDispatcherUnhandledException;
 
         var registry = new CameraRegistry(CreateProviders());
-        var viewModel = new MainViewModel(registry, _loggerFactory, memoryLog);
+        var viewModel = new MainViewModel(registry, _loggerFactory, memoryLog, FindUpwards(SampleRecipe));
         var window = new MainWindow(viewModel);
         MainWindow = window;
         window.Show();
@@ -67,7 +68,7 @@ public partial class App : Application
         for (DirectoryInfo? dir = new(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
         {
             string candidate = Path.Combine(dir.FullName, relativePath);
-            if (Directory.Exists(candidate))
+            if (Directory.Exists(candidate) || File.Exists(candidate))
             {
                 return candidate;
             }

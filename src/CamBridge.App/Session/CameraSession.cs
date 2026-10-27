@@ -1,4 +1,5 @@
 using CamBridge.Core;
+using CamBridge.Inspection;
 using CamBridge.Pipeline;
 using Microsoft.Extensions.Logging;
 
@@ -11,13 +12,24 @@ namespace CamBridge.App.Session;
 /// </summary>
 public sealed partial class CameraSession : IAsyncDisposable
 {
-    private readonly ILogger _logger;
+    /// <summary>Inspection queue: a slow recipe drops old frames instead of lagging behind the camera.</summary>
+    private static readonly ConsumerOptions InspectionQueue = new() { Capacity = 2, OverflowPolicy = QueueOverflowPolicy.DropOldest };
 
-    private CameraSession(ICamera camera, AcquisitionPipeline pipeline, ILogger logger)
+    private readonly ILogger _logger;
+    private readonly InspectionEngine? _initialEngine;
+
+    private CameraSession(ICamera camera, AcquisitionPipeline pipeline, InspectionEngine? engine, ILogger logger)
     {
         Camera = camera;
         Pipeline = pipeline;
         _logger = logger;
+        _initialEngine = engine;
+        if (engine is not null)
+        {
+            Inspection = new InspectionConsumer(engine);
+            pipeline.AddConsumer(Inspection, InspectionQueue);
+        }
+
         camera.ErrorOccurred += OnErrorOccurred;
         camera.StateChanged += OnStateChanged;
     }
@@ -26,31 +38,49 @@ public sealed partial class CameraSession : IAsyncDisposable
 
     public AcquisitionPipeline Pipeline { get; }
 
+    /// <summary>Inspection consumer, or null when the session was opened without a recipe.</summary>
+    public InspectionConsumer? Inspection { get; }
+
     public CameraState State => Camera.State;
 
     /// <summary>Raised on the thread that changed the state (often a camera thread).</summary>
     public event EventHandler<CameraStateChangedEventArgs>? StateChanged;
 
-    /// <summary>Creates the camera and opens it. The camera is disposed if opening fails.</summary>
-    public static async Task<CameraSession> OpenAsync(CameraRegistry registry, CameraInfo info, ILoggerFactory loggerFactory, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Creates the camera and opens it. The session takes ownership of <paramref name="engine"/>
+    /// (disposed with the session, or right away if opening fails).
+    /// </summary>
+    public static async Task<CameraSession> OpenAsync(
+        CameraRegistry registry, CameraInfo info, InspectionEngine? engine, ILoggerFactory loggerFactory, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(info);
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
-        ICamera camera = registry.Create(info);
+        ICamera camera;
+        try
+        {
+            camera = registry.Create(info);
+        }
+        catch
+        {
+            engine?.Dispose();
+            throw;
+        }
+
         try
         {
             await camera.OpenAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
         {
+            engine?.Dispose();
             await camera.DisposeAsync().ConfigureAwait(false);
             throw;
         }
 
         var pipeline = new AcquisitionPipeline(camera, logger: loggerFactory.CreateLogger<AcquisitionPipeline>());
-        var session = new CameraSession(camera, pipeline, loggerFactory.CreateLogger<CameraSession>());
+        var session = new CameraSession(camera, pipeline, engine, loggerFactory.CreateLogger<CameraSession>());
         LogOpened(session._logger, info.DisplayName, info.ProviderId);
         return session;
     }
@@ -87,6 +117,8 @@ public sealed partial class CameraSession : IAsyncDisposable
             Camera.ErrorOccurred -= OnErrorOccurred;
             Camera.StateChanged -= OnStateChanged;
             await Pipeline.DisposeAsync().ConfigureAwait(false);
+            Inspection?.Dispose(); // releases engines swapped in since; the initial one is ours
+            _initialEngine?.Dispose();
             await Camera.DisposeAsync().ConfigureAwait(false);
             LogClosed(_logger, Camera.Info.DisplayName);
         }

@@ -205,8 +205,16 @@ public sealed class Frame : IDisposable
   - 웹캠 수정: UVC 컨트롤을 호출 스레드(MTA)에서 lock으로 직접 호출, 해상도 캐시 → 파라미터 읽기가 프레임을 기다리지 않음(노출 250ms에서 목록 갱신 약 10초 → 즉시). STA 호출은 장치 스레드 경유
   - 2026-10-27 로컬(APC940): 자동 끄기 → 500µs(488로 양자화, 30.9fps 검은 영상) → 250000µs(밝은 영상, 2.1fps) → 범위 밖 값 거부 메시지 → 자동 복원, 종료 코드 0
   - 테스트 수정: 노출 변경 확인을 고정 800ms 대기에서 "새 프레임 5장"으로 변경. 어두운 환경(노출 250ms, 약 4fps)에서는 드라이버 버퍼 때문에 반영이 약 1초 늦어 이전 노출을 샘플링하던 문제
-- [ ] ROI 마우스 드로잉 및 편집
-- [ ] 검사 결과 오버레이 (OK 녹색 / NG 빨강), 누적 OK/NG 카운트
+- [x] ROI 마우스 드로잉 및 편집 — 6c
+  - 라이브뷰 [ROI 편집] 모드: ROI 클릭 선택, 본체 드래그 이동, 8방향 핸들 크기 조절, 빈 곳 드래그로 선택 도구의 ROI 새로 그리기. 드래그 중에는 미리보기만, 놓을 때 엔진 재생성. 이미지 밖으로 나가지 않고 최소 4px 유지(`RoiEditor`, 단위 테스트)
+  - 검사 패널: 레시피 불러오기/저장/다른 이름으로(템플릿 경로를 새 위치 기준 상대 경로로 변환), 도구 목록(사용 on/off), Blob 추가·삭제, 선택 도구 설정(이진화·극성·최소 면적·개수/면적 범위, 템플릿 최소 점수)
+  - 실행 중 레시피 교체: `InspectionConsumer.ReplaceEngine` — 새 엔진은 대기 슬롯에만 두고 워커가 다음 프레임 전에 교체, 이전 엔진은 워커 스레드에서 해제. 연속 편집은 `CoalescingApplier`로 1개 엔진으로 합침. 엔진 생성(템플릿 디스크 I/O)은 스레드 풀
+  - 2026-10-27 로컬: 샘플 폴더에서 Stain ROI를 실제 마우스로 +40px 드래그 → (160,60,160x140)(오른쪽 끝에서 제한), "Recipe applied" 후 검사 계속
+- [x] 검사 결과 오버레이 (OK 녹색 / NG 빨강), 누적 OK/NG 카운트 — 6c
+  - `OverlayLayer`가 화면 좌표로 그림(확대해도 1px 선). 판정 배너(OK/NG + 프레임 번호), 도구 ROI 통과 녹색/실패 빨강, 블롭 주황·매칭 자홍 점선. 렌더 틱에서 `IInspectionOverlay.Version`이 바뀔 때만 다시 그림(pull)
+  - 검사 패널: 최근 판정(색상)·프레임 번호·처리 시간·실패 사유, OK/NG/양품률, 초기화
+  - 2026-10-27 로컬: 샘플 20장 순환 재생 OK 91 / NG 30 = 75.2%(샘플 구성 15/5와 일치), 검사 30fps·0.3~0.4ms·드롭 0
+  - 미포함: UI에서 CSV 결과 기록(Core `CsvResultLogger`는 있음, `ReplaceEngine`이 로거 교체도 지원 — 같은 파일을 새 로거가 이어 쓰려면 이전 로거가 닫힌 뒤여야 해서 UI 연결은 보류)
 - [x] 통계 상태바 (FPS, 드롭, 큐 길이) 상시 표시 — 6a. 상태, 수신 FPS·누적, 표시 FPS·건너뜀, 총 드롭(카메라측), 소비자별 처리 FPS·큐·드롭·오류
 - [x] 로깅 (콘솔 + 파일 + UI 로그 줄) — 6a. `FileLoggerProvider`(일별 파일, 백그라운드 Channel로 I/O), `MemoryLogProvider`(최근 200줄, UI가 버전 폴링)
 
@@ -273,7 +281,7 @@ public sealed class Frame : IDisposable
 - 라이브뷰: `AcquisitionPipeline.LiveView.TryTake()`를 `CompositionTarget.Rendering` 또는 `DispatcherTimer`에서 호출 → `WriteableBitmap`에 복사 후 프레임 Dispose
 - 통계 상태바: `pipeline.GetStatistics()`를 약 4Hz로 폴링(수신 FPS, 소비자별 처리 FPS·큐 길이·드롭, `TotalDroppedFrames`)
 - 검사: `InspectionEngine.Load("samples/part-inspection/part.recipe.json")` + `InspectionConsumer`. `ResultProduced`는 워커 스레드에서 발생 → Dispatcher 마샬링. 오버레이는 `InspectionResult.Overlays`(이미지 좌표)
-- 실행 중 레시피(ROI) 변경: 현재 `InspectionEngine`은 스레드 안전하지 않음 → 새 엔진 생성 후 소비자에서 원자적 교체하는 방식 설계 필요
+- 실행 중 레시피(ROI) 변경: 현재 `InspectionEngine`은 스레드 안전하지 않음 → 새 엔진 생성 후 소비자에서 원자적 교체하는 방식 설계 필요 — 6c에서 `InspectionConsumer.ReplaceEngine`으로 해결. 검사 결과도 Dispatcher 마샬링 대신 `LatestResult`를 pull
 
 ---
 
