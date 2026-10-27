@@ -127,11 +127,20 @@ public sealed class Frame : IDisposable
 
 ## 4단계 — 획득 파이프라인 (2일)
 
-- [ ] 생산자/소비자 구조 (`System.Threading.Channels`), 큐 상한 및 초과 시 정책(드롭/대기) 선택 가능
-- [ ] 통계 수집: 수신 FPS, 처리 FPS, 드롭 프레임 수, 큐 길이
-- [ ] 이미지 저장 소비자 (비동기, 포맷·경로 규칙 설정)
-- [ ] 라이브뷰용 "최신 프레임" 슬롯 (중간 프레임 스킵)
+- [x] 생산자/소비자 구조 (`System.Threading.Channels`), 큐 상한 및 초과 시 정책(드롭/대기) 선택 가능
+  - 소비자별 독립 bounded 큐(`AcquisitionPipeline.AddConsumer`). 저장 지연이 검사를 막지 않음
+  - 정책: `DropOldest`(기본) / `DropNewest` / `Wait`(카메라 스레드를 `WaitTimeout`까지 블로킹 후 드롭 — 트리거 기반 무손실 용도로만)
+  - 소비자 예외는 Faults·LastError로 집계하고 계속 진행. `StopAsync(drain)`로 잔여 큐 처리/폐기 선택
+- [x] 통계 수집: 수신 FPS, 처리 FPS, 드롭 프레임 수, 큐 길이
+  - `GetStatistics()` 스냅샷(UI 폴링용). FPS는 100ms×10 버킷 슬라이딩 윈도우, `TimeProvider` 주입
+  - 드롭 출처 분리: 카메라측(FrameId 간격, 카운터 리셋은 제외) / 소비자 큐별 / 라이브뷰 스킵(정상 동작, 드롭 합계에서 제외)
+- [x] 이미지 저장 소비자 (비동기, 포맷·경로 규칙 설정)
+  - `ImageSaveConsumer`: PNG/BMP/JPEG, 경로 패턴 토큰(`{camera}`, `{frameId:D8}`, `{timestamp:yyyyMMdd}` 등), N장마다 저장, 루트 밖 경로 거부
+  - `IFrameEncoder` / `OpenCvFrameEncoder`: 프레임 버퍼를 핀 고정해 Mat으로 래핑(복사 없음)
+- [x] 라이브뷰용 "최신 프레임" 슬롯 (중간 프레임 스킵) — `LatestFrameSlot`
 - [ ] 장시간 실행 테스트 (예: 에뮬레이터 30분 연속) — 메모리 증가 없음 확인
+  - [x] [클라우드] 합성 카메라 고속 생성 2초 소크 테스트: 풀 대여=반납(누수 0), 소비자별 처리+드롭=수신 정확 일치. 단일 코어 포함 반복 실행 안정
+  - [ ] [로컬] **로컬 검증 필요**: 3단계 완료 후 pylon 에뮬레이터 30분 연속 획득, 프로세스 메모리 추이 확인
 
 **완료 기준**: 장시간 실행 시 메모리 안정, 통계 정확
 

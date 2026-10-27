@@ -2,7 +2,10 @@ using CamBridge.Core;
 
 namespace CamBridge.Tests.Fakes;
 
-/// <summary>Minimal camera for registry tests; acquisition members are not exercised.</summary>
+/// <summary>
+/// Minimal camera. Tests push frames with <see cref="Emit"/>, which follows the camera contract:
+/// the frame is valid only during the event and disposed afterwards.
+/// </summary>
 internal sealed class FakeCamera(CameraInfo info) : ICamera
 {
     private readonly Dictionary<string, object> _values = new(StringComparer.Ordinal);
@@ -17,13 +20,25 @@ internal sealed class FakeCamera(CameraInfo info) : ICamera
 
     public TriggerMode TriggerMode { get; set; }
 
-#pragma warning disable CS0067 // Events are part of the contract but never raised by this fake.
     public event EventHandler<FrameReceivedEventArgs>? FrameReceived;
 
+#pragma warning disable CS0067 // Part of the contract but never raised by this fake.
     public event EventHandler<CameraErrorEventArgs>? ErrorOccurred;
 
     public event EventHandler<CameraStateChangedEventArgs>? StateChanged;
 #pragma warning restore CS0067
+
+    public void Emit(Frame frame)
+    {
+        try
+        {
+            FrameReceived?.Invoke(this, new FrameReceivedEventArgs(frame));
+        }
+        finally
+        {
+            frame.Dispose();
+        }
+    }
 
     public Task OpenAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
