@@ -148,12 +148,25 @@ public sealed class Frame : IDisposable
 
 ## 5단계 — 검사 로직 MVP (2일)
 
-- [ ] ROI 모델 (사각형, 복수 ROI)
-- [ ] 검사 도구: 이진화 + 블롭(면적·개수), 템플릿 매칭(점수 임계값)
-- [ ] 판정 규칙 → OK/NG + 사유
-- [ ] 검사 결과 CSV 로그 (시각, 프레임 ID, 결과, 측정값)
-- [ ] 레시피(검사 설정) JSON 저장·불러오기
-- [ ] 샘플 이미지 기반 단위 테스트
+- [x] ROI 모델 (사각형, 복수 ROI) — `RoiRect`, 도구별 ROI
+- [x] 검사 도구: 이진화 + 블롭(면적·개수), 템플릿 매칭(점수 임계값)
+  - `BlobTool`: 고정/Otsu 임계값, 극성(Dark/Bright), 최소 면적 노이즈 필터, `ConnectedComponentsWithStats`. 측정: Count/TotalArea/MaxArea/Threshold
+  - `TemplateMatchTool`: `TM_CCOEFF_NORMED`. 측정: Score/X/Y. 무특징 영역(NaN)은 점수 0
+- [x] 판정 규칙 → OK/NG + 사유
+  - 모든 활성 도구 통과 시 OK. 사유 예: `Stain: Count 2 > max 0`
+  - ROI가 이미지 밖·템플릿보다 작음 → 예외 없이 NG(`IsConfigurationError`). 템플릿 파일 누락은 엔진 생성 시 예외
+  - 결과에 UI 오버레이용 사각형(ROI/블롭/매칭 위치, 이미지 좌표)과 도구별·전체 처리 시간 포함
+- [x] 검사 결과 CSV 로그 (시각, 프레임 ID, 결과, 측정값)
+  - `CsvResultLogger`: 레시피 기반 고정 열(`도구.측정값`), 행 단위 flush, 기존 파일과 열 구성이 다르면 거부
+- [x] 레시피(검사 설정) JSON 저장·불러오기
+  - `RecipeSerializer`: `$type` 다형성, enum 문자열, `schemaVersion` 검사, 도구 이름 중복 거부
+  - 템플릿은 레시피 옆 별도 PNG(상대 경로)
+- [x] 샘플 이미지 기반 단위 테스트
+  - 샘플은 테스트 코드가 합성(텍스처 배경 + 기준 마크 + 결함 점) → 라이선스 문제 없음
+  - 판정 여유: 템플릿 점수 마크 있음 0.999 / 없음 약 0.1 (임계 0.8), 배경 184~196 / 결함 40 (임계 100)
+- [x] 파이프라인 연결: `InspectionConsumer`(OK/NG 카운트, 최신 결과, `ResultProduced` 이벤트 — 워커 스레드에서 발생하므로 UI는 Dispatcher 마샬링)
+
+검증: 샘플 폴더(OK 3 / NG 3 PNG) + 레시피 파일 → 파이프라인 소비자로 실행 → 6장 모두 기대 판정, CSV 7행 확인. 테스트 총 76개 통과.
 
 **완료 기준**: 샘플 이미지 폴더로 양불 판정이 기대대로 나옴
 

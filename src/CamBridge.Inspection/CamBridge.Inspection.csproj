@@ -2,6 +2,8 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
+    <!-- Frame buffers are pinned and wrapped as OpenCV Mats without copying. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,6 +13,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CamBridge.Core\CamBridge.Core.csproj" />
+    <!-- Inspection plugs into the pipeline as a consumer; the pipeline knows nothing about inspection. -->
+    <ProjectReference Include="..\CamBridge.Pipeline\CamBridge.Pipeline.csproj" />
   </ItemGroup>
 
 </Project>
