@@ -1,0 +1,62 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa]rm64/
+artifacts/
+publish/
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+project.lock.json
+project.fragment.lock.json
+
+# Test results
+[Tt]est[Rr]esult*/
+*.trx
+coverage*/
+*.coverage
+*.coveragexml
+
+# Logs and runtime output
+logs/
+*.log
+captures/
+output/
+
+# Vendor SDK binaries (never commit; install the SDK instead)
+lib/pylon/
+**/Basler.Pylon*.dll
+**/Pylon*.dll
+**/GenApi*.dll
+**/GCBase*.dll
+
+# Sample datasets (download separately; check licenses)
+samples/datasets/
+
+# Local settings and secrets
+appsettings.Local.json
+*.env
+.env*
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
