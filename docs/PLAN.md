@@ -210,11 +210,15 @@ public sealed class Frame : IDisposable
 
 ### A. 환경 확인 (0단계 로컬 항목)
 
-- [ ] .NET 8 SDK 확인(`dotnet --list-sdks`). Visual Studio 2022 또는 SDK 8.0.4xx 이상 권장
-- [ ] `dotnet build CamBridge.sln` — 경고 0 기대. 빌드 로그에 `CamBridge.Sources.Pylon: pylon SDK not found/found` 출력 확인
-- [ ] `dotnet test tests/CamBridge.Tests` — 93개 통과 기대(클라우드 결과). Windows용 OpenCV 런타임(`OpenCvSharp4.runtime.win`) 로드 확인
+- [x] .NET 8 SDK 확인(`dotnet --list-sdks`). Visual Studio 2022 또는 SDK 8.0.4xx 이상 권장
+  - 2026-10-27 로컬: winget으로 SDK 8.0.427 설치, `global.json`(8.0.100, `latestFeature`)에서 8.0.427 선택 확인
+- [x] `dotnet build CamBridge.sln` — 경고 0 기대. 빌드 로그에 `CamBridge.Sources.Pylon: pylon SDK not found/found` 출력 확인
+  - 2026-10-27 로컬(SDK 8.0.427, 클린 빌드): 경고 0·오류 0, `pylon SDK not found` 출력 확인
+- [x] `dotnet test tests/CamBridge.Tests` — 93개 통과 기대(클라우드 결과). Windows용 OpenCV 런타임(`OpenCvSharp4.runtime.win`) 로드 확인
   - `DllNotFoundException`(OpenCvSharpExtern)이 나면 Visual C++ 재배포 패키지 설치 여부 확인
-- [ ] `dotnet run --project src/CamBridge.App` — 빈 WPF 창 표시
+  - 2026-10-27 로컬: 93/93 통과, `runtimes/win-x64/native/OpenCvSharpExtern.dll` 로드 확인
+- [x] `dotnet run --project src/CamBridge.App` — 빈 WPF 창 표시
+  - 2026-10-27 로컬: "CamBridge" 창 표시 확인
 - [ ] pylon SDK 설치 후 `Basler.Pylon.dll` 실제 경로 확인 → `src/CamBridge.Sources.Pylon/CamBridge.Sources.Pylon.csproj`의 `PylonNetAssembly` 기본값 수정(현재 `$(PYLON_DEV_DIR)\Assemblies\Basler.Pylon\x64\Basler.Pylon.dll`은 추정값)
   - 설치판이 NuGet 패키지 형태로 .NET API를 제공하는지도 확인(그렇다면 조건부 PackageReference로 전환 검토)
 
