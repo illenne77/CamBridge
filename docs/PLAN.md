@@ -78,11 +78,24 @@ public sealed class Frame : IDisposable
 }
 ```
 
-- [ ] `ICamera`, `ICameraProvider`, `CameraInfo`, `CameraState`, `TriggerMode`, `PixelFormat`
-- [ ] `Frame` (풀링 버퍼, Dispose 시 반환)
-- [ ] `CameraParameter` (이름, 타입, 범위, 읽기/쓰기 가능 여부)
-- [ ] `CameraRegistry` — 등록된 Provider들로부터 카메라 목록 통합
-- [ ] 단위 테스트: Frame 버퍼 반환, 레지스트리 열거
+- [x] `ICamera`, `ICameraProvider`, `CameraInfo`, `CameraState`, `TriggerMode`, `PixelFormat`
+- [x] `Frame` (풀링 버퍼, Dispose 시 반환)
+- [x] `CameraParameter` (이름, 타입, 범위, 읽기/쓰기 가능 여부)
+- [x] `CameraRegistry` — 등록된 Provider들로부터 카메라 목록 통합
+- [x] 단위 테스트: Frame 버퍼 반환, 레지스트리 열거 (22개 + OpenCV 스모크 1개 통과)
+
+**확정된 변경 사항 (출발안 대비)**
+
+- `Frame`: 참조 카운트 공유. `Share()`가 같은 버퍼를 가리키는 **새 핸들**을 반환하고, 마지막 핸들 Dispose 시 풀에 반납.
+  핸들별 중복 Dispose는 무해하고, Dispose 후 접근은 `ObjectDisposedException`. 공유된 프레임은 읽기 전용(`GetWritableData()` 예외).
+  `FrameId`(장치 block ID, 드롭 검출용), `DeviceTimestamp`, `TimestampUtc` 분리. 풀은 주입 가능(기본 `ArrayPool<byte>.Shared`)
+- `FrameReceived`의 프레임은 핸들러 실행 중에만 유효. 보관하려면 `Share()`
+- `ICameraProvider.EnumerateAsync(ct)` — GigE 탐색 지연 대응. `ProviderId`로 `Create` 라우팅
+- `CameraRegistry.EnumerateAsync` — Provider 병렬 열거, 실패 Provider는 `Failures`로 격리, 등록 순서 유지
+- `ICamera`에 `StateChanged`, `ExecuteCommand(name)`, Start/Stop/Close의 `CancellationToken` 추가.
+  `GetParameter`는 null을 반환하지 않음(미지원 이름 `KeyNotFoundException`, 현재 접근 불가 `InvalidOperationException`)
+- 파라미터 값 타입 규약: Integer=`long`, Float=`double`, Boolean=`bool`, Enumeration/String=`string`. 이름은 SFNC(`ParameterNames`)
+- `CameraState`: Closed / Open / Acquiring / Faulted. `CameraErrorKind`: Disconnected / FrameError / Timeout / Other
 
 **완료 기준**: 인터페이스 확정, 테스트 통과
 
