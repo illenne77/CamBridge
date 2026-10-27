@@ -108,10 +108,10 @@
             <views:LiveView Grid.Column="1" Source="{Binding LiveFrames}"
                             DisplayFps="{Binding DisplayFps, Mode=OneWayToSource}" />
 
-            <!-- Parameters and inspection panels arrive in steps 6b and 6c. -->
+            <!-- The inspection panel arrives in step 6c. -->
             <TabControl Grid.Column="2" Margin="8">
                 <TabItem Header="파라미터">
-                    <TextBlock Margin="8" Foreground="Gray" Text="6b 단계에서 추가" />
+                    <views:ParametersPanel DataContext="{Binding Parameters}" />
                 </TabItem>
                 <TabItem Header="검사">
                     <TextBlock Margin="8" Foreground="Gray" Text="6c 단계에서 추가" />

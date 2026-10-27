@@ -86,12 +86,15 @@ public sealed partial class MainViewModel : ObservableObject
         _loggerFactory = loggerFactory;
         _memoryLog = memoryLog;
         _logger = loggerFactory.CreateLogger<MainViewModel>();
+        Parameters = new ParametersViewModel(loggerFactory.CreateLogger<ParametersViewModel>());
         _dispatcher = Dispatcher.CurrentDispatcher;
         _timer = new DispatcherTimer(StatisticsInterval, DispatcherPriority.Background, (_, _) => OnTick(), _dispatcher);
         _timer.Start();
     }
 
     public ObservableCollection<CameraItem> Cameras { get; } = [];
+
+    public ParametersViewModel Parameters { get; }
 
     public ObservableCollection<LogEntry> LogEntries { get; } = [];
 
@@ -150,6 +153,7 @@ public sealed partial class MainViewModel : ObservableObject
             LiveFrames = session.Pipeline.LiveView;
             State = session.State;
             OnPropertyChanged(nameof(ConnectedCameraName));
+            await Parameters.AttachAsync(session.Camera);
         });
     }
 
@@ -167,6 +171,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         _timer.Stop();
         await CloseSessionAsync();
+        Parameters.Dispose();
     }
 
     private bool CanRefresh() => !IsBusy;
@@ -209,6 +214,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         session.StateChanged -= OnSessionStateChanged;
+        await Parameters.AttachAsync(null);
         LiveFrames = null;
         Session = null;
         State = CameraState.Closed;
@@ -225,6 +231,7 @@ public sealed partial class MainViewModel : ObservableObject
             if (ReferenceEquals(sender, Session))
             {
                 State = e.NewState;
+                _ = Parameters.RefreshAsync(); // writability and trigger availability depend on the state
             }
         });
     }

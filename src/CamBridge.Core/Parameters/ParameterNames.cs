@@ -7,7 +7,9 @@ namespace CamBridge.Core;
 public static class ParameterNames
 {
     public const string ExposureTime = "ExposureTime";
+    public const string ExposureAuto = "ExposureAuto";
     public const string Gain = "Gain";
+    public const string GainAuto = "GainAuto";
     public const string TriggerMode = "TriggerMode";
     public const string TriggerSource = "TriggerSource";
     public const string TriggerSoftware = "TriggerSoftware";

@@ -90,9 +90,9 @@ public sealed class WebcamCameraDeviceTests : IAsyncLifetime
     {
         if (_camera is not null)
         {
-            if (_camera.State != CameraState.Closed && _camera.FindParameter("ExposureAuto") is { IsAvailable: true })
+            if (_camera.State != CameraState.Closed && _camera.FindParameter(ParameterNames.ExposureAuto) is { IsAvailable: true })
             {
-                _camera.SetParameter("ExposureAuto", "Continuous"); // leave the webcam as found
+                _camera.SetParameter(ParameterNames.ExposureAuto, "Continuous"); // leave the webcam as found
             }
 
             await _camera.DisposeAsync();
@@ -205,31 +205,37 @@ public sealed class WebcamCameraDeviceTests : IAsyncLifetime
     public async Task ManualExposure_ChangesBrightnessAndIsLockedWhileAuto()
     {
         await Camera.OpenAsync();
-        if (Camera.FindParameter("ExposureAuto") is not { IsAvailable: true })
+        if (Camera.FindParameter(ParameterNames.ExposureAuto) is not { IsAvailable: true })
         {
             return; // device without auto exposure: nothing to switch
         }
 
-        Camera.SetParameter("ExposureAuto", "Continuous");
+        Camera.SetParameter(ParameterNames.ExposureAuto, "Continuous");
         Assert.Throws<InvalidOperationException>(() => Camera.ExposureTimeUs = 10_000);
         Assert.False(Camera.FindParameter(ParameterNames.ExposureTime)!.IsWritable);
 
-        Camera.SetParameter("ExposureAuto", "Off");
+        Camera.SetParameter(ParameterNames.ExposureAuto, "Off");
         CameraParameter exposure = Camera.FindParameter(ParameterNames.ExposureTime)!;
         Assert.True(exposure.IsWritable);
 
         double latest = 0;
-        Camera.FrameReceived += (_, e) => Volatile.Write(ref latest, Mean(e.Frame));
+        long frames = 0;
+        Camera.FrameReceived += (_, e) =>
+        {
+            Volatile.Write(ref latest, Mean(e.Frame));
+            Interlocked.Increment(ref frames);
+        };
         await Camera.StartAcquisitionAsync();
 
         Camera.ExposureTimeUs = exposure.Minimum!.Value;
-        double shortExposure = await SettledMeanAsync(() => Volatile.Read(ref latest));
+        double shortExposure = await SettledMeanAsync(() => Volatile.Read(ref latest), () => Interlocked.Read(ref frames));
         Assert.Equal(exposure.Minimum.Value, Camera.ExposureTimeUs, precision: 3);
 
-        Camera.ExposureTimeUs = Math.Min(exposure.Maximum!.Value, exposure.Minimum.Value * 64);
-        double longExposure = await SettledMeanAsync(() => Volatile.Read(ref latest));
+        // Full range, so the difference shows even in a dim room (min -> 64x min gave only 0 -> 3.7 at night).
+        Camera.ExposureTimeUs = exposure.Maximum!.Value;
+        double longExposure = await SettledMeanAsync(() => Volatile.Read(ref latest), () => Interlocked.Read(ref frames));
 
-        Assert.True(longExposure > shortExposure + 10, $"mean {shortExposure:F1} -> {longExposure:F1}");
+        Assert.True(longExposure > shortExposure + 5, $"mean {shortExposure:F1} -> {longExposure:F1}");
         Assert.Throws<ArgumentOutOfRangeException>(() => Camera.ExposureTimeUs = exposure.Maximum.Value * 2);
     }
 
@@ -290,10 +296,16 @@ public sealed class WebcamCameraDeviceTests : IAsyncLifetime
         return sum / (double)((data.Length + 6) / 7);
     }
 
-    /// <summary>Waits for the exposure change to reach the sensor (a few frames), then samples.</summary>
-    private static async Task<double> SettledMeanAsync(Func<double> latest)
+    /// <summary>
+    /// Waits until the exposure change has reached the image, then samples. Counted in frames,
+    /// not time: at long exposures (dim room, ~4 fps) the driver's buffered frames delay a change
+    /// by about a second, so a fixed 800 ms wait sampled the previous exposure.
+    /// </summary>
+    private static async Task<double> SettledMeanAsync(Func<double> latest, Func<long> frameCount)
     {
-        await Task.Delay(800);
+        const int FramesToSettle = 5;
+        long target = frameCount() + FramesToSettle;
+        await WaitForAsync(() => frameCount() >= target);
         return latest();
     }
 

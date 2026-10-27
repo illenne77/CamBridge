@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
+using CamBridge.Core;
 
 namespace CamBridge.Sources.Webcam.Interop;
 
@@ -26,14 +27,14 @@ internal sealed class UvcControls : IDisposable
     // Value names follow the DirectShow property names; auto switches use SFNC names where one exists.
     private static readonly UvcControlSpec[] Specs =
     [
-        new(Exposure, "ExposureAuto", true, (int)CameraControlProperty.Exposure, "log2 s"),
+        new(Exposure, ParameterNames.ExposureAuto, true, (int)CameraControlProperty.Exposure, "log2 s"),
         new("Focus", "FocusAuto", true, (int)CameraControlProperty.Focus),
         new("Zoom", "ZoomAuto", true, (int)CameraControlProperty.Zoom),
         new("Pan", "PanAuto", true, (int)CameraControlProperty.Pan),
         new("Tilt", "TiltAuto", true, (int)CameraControlProperty.Tilt),
         new("Roll", "RollAuto", true, (int)CameraControlProperty.Roll),
         new("Iris", "IrisAuto", true, (int)CameraControlProperty.Iris),
-        new(Gain, "GainAuto", false, (int)VideoProcAmpProperty.Gain),
+        new(Gain, ParameterNames.GainAuto, false, (int)VideoProcAmpProperty.Gain),
         new("Brightness", "BrightnessAuto", false, (int)VideoProcAmpProperty.Brightness),
         new("Contrast", "ContrastAuto", false, (int)VideoProcAmpProperty.Contrast),
         new("Hue", "HueAuto", false, (int)VideoProcAmpProperty.Hue),

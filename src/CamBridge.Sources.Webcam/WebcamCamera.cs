@@ -14,9 +14,16 @@ namespace CamBridge.Sources.Webcam;
 /// </summary>
 /// <remarks>
 /// <para>
-/// One <see cref="DeviceThread"/> owns the VideoCapture and the DirectShow filter from open to
-/// close; every device access is marshalled to it. While acquiring it reads frames back to back,
-/// which also keeps the driver's frame buffer from going stale.
+/// One <see cref="DeviceThread"/> owns the VideoCapture from open to close; stream changes
+/// (open, resolution, start/stop) are marshalled to it. While acquiring it reads frames back to
+/// back, which also keeps the driver's frame buffer from going stale.
+/// </para>
+/// <para>
+/// UVC controls are called directly from the caller's thread under a lock instead: KS property
+/// requests are safe while streaming, and routing them through the device thread would make
+/// each access wait for the frame in progress (up to 250 ms at long exposures, ~10 s to read
+/// the whole list). The filter lives in the MTA, so STA callers (e.g. a UI thread) still go
+/// through the device thread to avoid needing a COM proxy.
 /// </para>
 /// <para>
 /// Software trigger is emulated: the stream keeps running and the first frame whose read starts
@@ -46,9 +53,16 @@ public sealed class WebcamCamera : ICamera
     private volatile PixelFormat _pixelFormat = PixelFormat.Bgr8;
     private int _pendingTriggers;
 
+    // Created and released on the device thread; used by any MTA thread under _controlsLock.
+    private readonly object _controlsLock = new();
+    private UvcControls? _controls;
+
+    // Negotiated stream size, cached on the device thread so reads need not wait for a frame.
+    private volatile int _width;
+    private volatile int _height;
+
     // Owned by the device thread.
     private VideoCapture? _capture;
-    private UvcControls? _controls;
     private Mat? _image;
     private long _frameId;
     private long _failingSince;
@@ -258,7 +272,7 @@ public sealed class WebcamCamera : ICamera
         }
         else
         {
-            parameters.AddRange(device.Invoke(DescribeControls));
+            parameters.AddRange(WithControls(device, DescribeControls));
         }
 
         bool open = device is not null;
@@ -317,7 +331,13 @@ public sealed class WebcamCamera : ICamera
             throw new KeyNotFoundException($"Unknown parameter '{name}'.");
         }
 
-        return RequireDevice(name).Invoke(() => GetOnDevice(name));
+        DeviceThread device = RequireDevice(name);
+        return name switch
+        {
+            ParameterNames.Width => (long)_width,
+            ParameterNames.Height => (long)_height,
+            _ => WithControls(device, () => GetControl(name)),
+        };
     }
 
     public void SetParameter(string name, object value)
@@ -364,12 +384,23 @@ public sealed class WebcamCamera : ICamera
             throw new KeyNotFoundException($"Unknown parameter '{name}'.");
         }
 
-        if (name is ParameterNames.Width or ParameterNames.Height && State != CameraState.Open)
+        DeviceThread device = RequireDevice(name);
+        if (name is ParameterNames.Width or ParameterNames.Height)
         {
-            throw new InvalidOperationException($"{name} can only be changed while open and not acquiring.");
+            if (State != CameraState.Open)
+            {
+                throw new InvalidOperationException($"{name} can only be changed while open and not acquiring.");
+            }
+
+            device.Invoke(() => SetResolution(name, value)); // renegotiates the stream: device thread only
+            return;
         }
 
-        RequireDevice(name).Invoke(() => SetOnDevice(name, value));
+        WithControls(device, () =>
+        {
+            SetControl(name, value);
+            return true;
+        });
     }
 
     public void ExecuteCommand(string name)
@@ -410,18 +441,32 @@ public sealed class WebcamCamera : ICamera
         }
 
         _capture = capture;
-        _controls = controls;
         _image = new Mat();
+        CacheSize();
+        lock (_controlsLock)
+        {
+            _controls = controls;
+        }
     }
 
     private void ReleaseOnDevice()
     {
+        lock (_controlsLock)
+        {
+            _controls?.Dispose();
+            _controls = null;
+        }
+
         _image?.Dispose();
         _capture?.Dispose();
-        _controls?.Dispose();
         _image = null;
         _capture = null;
-        _controls = null;
+    }
+
+    private void CacheSize()
+    {
+        _width = (int)_capture!.Get(VideoCaptureProperties.FrameWidth);
+        _height = (int)_capture.Get(VideoCaptureProperties.FrameHeight);
     }
 
     /// <summary>Pump body: reads one frame and publishes it unless it is gated by the software trigger.</summary>
@@ -613,15 +658,11 @@ public sealed class WebcamCamera : ICamera
     private static CameraParameter DescribeAuto(UvcControl control) =>
         new(control.Spec.AutoName, ParameterType.Enumeration) { IsWritable = true, EnumEntries = [AutoOff, AutoContinuous] };
 
-    private object GetOnDevice(string name)
+    /// <summary>Reads a UVC control parameter; caller holds <see cref="_controlsLock"/>.</summary>
+    private object GetControl(string name)
     {
-        VideoCapture capture = _capture!;
         switch (name)
         {
-            case ParameterNames.Width:
-                return (long)capture.Get(VideoCaptureProperties.FrameWidth);
-            case ParameterNames.Height:
-                return (long)capture.Get(VideoCaptureProperties.FrameHeight);
             case ParameterNames.ExposureTime:
                 return ExposureMapping.ToMicroseconds(_controls!.Get(RequireControl(UvcControls.Exposure, name)).Value);
             case ParameterNames.Gain:
@@ -633,15 +674,12 @@ public sealed class WebcamCamera : ICamera
         return isAuto ? (auto ? AutoContinuous : AutoOff) : (long)value;
     }
 
-    private void SetOnDevice(string name, object value)
+    /// <summary>Writes a UVC control parameter; caller holds <see cref="_controlsLock"/>.</summary>
+    private void SetControl(string name, object value)
     {
         UvcControls controls = _controls!;
         switch (name)
         {
-            case ParameterNames.Width or ParameterNames.Height:
-                SetResolution(name, value);
-                return;
-
             case ParameterNames.ExposureTime:
             {
                 UvcControl exposure = RequireManual(RequireControl(UvcControls.Exposure, name), name);
@@ -682,9 +720,33 @@ public sealed class WebcamCamera : ICamera
         double height = name == ParameterNames.Height ? requested : capture.Get(VideoCaptureProperties.FrameHeight);
 
         // DirectShow renegotiates the media type on each call; set both so the pair stays consistent.
-        if (!capture.Set(VideoCaptureProperties.FrameWidth, width) || !capture.Set(VideoCaptureProperties.FrameHeight, height))
+        bool accepted = capture.Set(VideoCaptureProperties.FrameWidth, width) && capture.Set(VideoCaptureProperties.FrameHeight, height);
+        CacheSize();
+        if (!accepted)
         {
             throw new ArgumentException($"The webcam rejected {width}x{height}.", nameof(value));
+        }
+    }
+
+    /// <summary>
+    /// Runs a UVC control access under the controls lock on the calling (MTA) thread, or on the
+    /// device thread when called from an STA thread.
+    /// </summary>
+    private T WithControls<T>(DeviceThread device, Func<T> access)
+    {
+        if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA && !device.IsCurrentThread)
+        {
+            return device.Invoke(() => WithControls(device, access));
+        }
+
+        lock (_controlsLock)
+        {
+            if (_controls is null)
+            {
+                throw new InvalidOperationException("The camera is closed.");
+            }
+
+            return access();
         }
     }
 
