@@ -166,9 +166,9 @@ public sealed class Frame : IDisposable
   - `ImageSaveConsumer`: PNG/BMP/JPEG, 경로 패턴 토큰(`{camera}`, `{frameId:D8}`, `{timestamp:yyyyMMdd}` 등), N장마다 저장, 루트 밖 경로 거부
   - `IFrameEncoder` / `OpenCvFrameEncoder`: 프레임 버퍼를 핀 고정해 Mat으로 래핑(복사 없음)
 - [x] 라이브뷰용 "최신 프레임" 슬롯 (중간 프레임 스킵) — `LatestFrameSlot`
-- [ ] 장시간 실행 테스트 (예: 에뮬레이터 30분 연속) — 메모리 증가 없음 확인
+- [x] 장시간 실행 테스트 (예: 에뮬레이터 30분 연속) — 메모리 증가 없음 확인
   - [x] [클라우드] 합성 카메라 고속 생성 2초 소크 테스트: 풀 대여=반납(누수 0), 소비자별 처리+드롭=수신 정확 일치. 단일 코어 포함 반복 실행 안정
-  - [ ] [로컬] **로컬 검증 필요**: 3단계 완료 후 pylon 에뮬레이터 30분 연속 획득, 프로세스 메모리 추이 확인
+  - [x] [로컬] 3단계 완료 후 pylon 에뮬레이터 30분 연속 획득, 프로세스 메모리 추이 확인 — 아래 인계 체크리스트 D 참고
 
 **완료 기준**: 장시간 실행 시 메모리 안정, 통계 정확
 
@@ -287,7 +287,12 @@ public sealed class Frame : IDisposable
 
 ### D. 4단계 로컬 — 장시간 실행
 
-- [ ] 에뮬레이터 30분 연속 획득 + 검사 소비자 + 저장 소비자. 작업 관리자/`dotnet-counters`로 프로세스 메모리·GC 힙 추이 확인
+- [x] 에뮬레이터 30분 연속 획득 + 검사 소비자 + 저장 소비자. 작업 관리자/`dotnet-counters`로 프로세스 메모리·GC 힙 추이 확인
+  - 도구: `tools/CamBridge.Soak`(dotnet-counters 대신 프로세스 내 측정, 반복 가능). `dotnet run -c Release --project tools/CamBridge.Soak -- --minutes 30` (`--source folder`로 이미지 폴더도 가능). 결과는 `artifacts/soak/`(gitignore)의 samples.csv·summary.txt
+  - 구성: 에뮬레이터 640x480 Mono8(120fps 요청, 실제 약 92fps) → 파이프라인(검사 큐 2 + PNG 저장 1/100 큐 4) + 16ms 간격 라이브뷰 TryTake. 10초마다 워킹셋·Private·강제 Full GC 후 관리 힙·핸들·스레드·미반환 프레임 버퍼(계수 풀) 기록, 앞 20%는 워밍업으로 제외하고 기울기로 판정
+  - 2026-10-27 결과 **PASS**: 30분 167,184프레임, 카메라 드롭 0 / 전체 드롭 0, 카메라 오류 0, PNG 1,672장. 정상 구간(6~30분) 기울기 — 남은 관리 힙 +0.025 MB/분(7.7~9.3MB 사이 진동), Private +0.012 MB/분(107.9→108.0MB), 핸들 −0.016/분(536 유지), 스레드 −0.035/분. 미반환 버퍼 최대 1, 정지 후 0/167,186
+  - GC: gen0=gen1=gen2=541 — 전부 샘플링 때의 강제 GC, 자연 발생 GC 0회(프레임 버퍼 풀링으로 할당이 거의 없음)
+  - 남은 관리 힙의 미세한 양(+)은 도구 자신이 쌓는 샘플 목록(10초당 1개) 수준. 실물 카메라 도착 후 같은 도구로 GigE에서 재실행 예정
 
 ### E. 6단계 — UI 연결 메모
 
