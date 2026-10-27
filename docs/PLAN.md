@@ -248,6 +248,8 @@ public sealed class Frame : IDisposable
 - [ ] `set PYLON_CAMEMU=2` 후 열거 확인, 노출·게인·트리거·소프트웨어 트리거 매핑, 이름 기반 파라미터 → pylon 파라미터 맵
 - [ ] pylon의 grab 결과 버퍼를 `Frame.Rent` 버퍼로 복사(Core에 SDK 타입 노출 금지). FrameId는 block ID 사용 → 카메라측 드롭 통계에 그대로 반영
 - [ ] 분리·재연결 → `ErrorOccurred(Disconnected)` + `CameraState.Faulted`
+- [ ] 실물(acA640-120gm, ace classic GigE) 대비: SFNC 1.x 이름(`ExposureTimeAbs`, `GainRaw`, `AcquisitionFrameRateAbs` 등, 도착 후 pylon Viewer로 확인)과 SFNC 2.x 이름을 노드 존재 여부로 둘 다 매핑. 에뮬레이터만으로는 이 차이가 검증되지 않음
+- [ ] 디버그 빌드용 GigE `HeartbeatTimeout` 연장 옵션(브레이크포인트 정지 시 분리 방지)
 
 ### D. 4단계 로컬 — 장시간 실행
 
@@ -265,6 +267,10 @@ public sealed class Frame : IDisposable
 
 ## 카메라 도착 후 (1~2일)
 
+구매 모델: Basler **acA640-120gm** (GigE Vision, Mono, 659×494, 최대 약 120fps — 사양은 도착 후 확인). Mono8 기준 약 39MB/s로 1GbE에 여유 있음.
+
+- [ ] 도착 전 준비: 전용 NIC, 점보 프레임(9000), pylon GigE 필터/Performance 드라이버, 방화벽 예외, IP Configurator로 고정 IP 또는 LLA, 전원(PoE 인젝터·스위치 또는 6핀 I/O 12–24V)
 - [ ] 실물 카메라 구현 연결 (Basler면 기존 `PylonCamera` 그대로, HIKROBOT이면 `Sources.Hik` 추가)
+- [ ] block ID 기반 카메라측 드롭(패킷 손실·재전송) 통계를 실물로 시연 — 웹캠에서는 측정 불가했던 항목
 - [ ] 조명·렌즈 세팅, 실물 촬영 시연 영상 제작
 - [ ] README·크몽 서비스 페이지에 실물 시연 반영
