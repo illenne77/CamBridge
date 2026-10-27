@@ -5,6 +5,7 @@ using CamBridge.App.Logging;
 using CamBridge.App.ViewModels;
 using CamBridge.Core;
 using CamBridge.Sources.ImageFolder;
+using CamBridge.Sources.Pylon;
 using CamBridge.Sources.Webcam;
 using Microsoft.Extensions.Logging;
 
@@ -52,14 +53,26 @@ public partial class App : Application
         base.OnExit(e);
     }
 
-    private static List<ICameraProvider> CreateProviders()
+    private List<ICameraProvider> CreateProviders()
     {
         string? samples = FindUpwards(SampleImagesFolder);
-        return
+        List<ICameraProvider> providers =
         [
             new ImageFolderProvider(samples is null ? [] : [samples]),
             new WebcamProvider(),
         ];
+
+        // Optional vendor SDK: registered only when available, nothing else changes (design principle 6).
+        if (PylonProviderFactory.TryCreate(new PylonOptions(), out string? reason) is { } pylon)
+        {
+            providers.Add(pylon);
+        }
+        else
+        {
+            LogProviderUnavailable(_logger!, PylonProviderFactory.ProviderId, reason ?? "unknown reason");
+        }
+
+        return providers;
     }
 
     /// <summary>Finds a repository-relative folder from the build output directory (dev runs).</summary>
@@ -87,6 +100,9 @@ public partial class App : Application
         MessageBox.Show(MainWindow, e.Exception.Message, "CamBridge 오류", MessageBoxButton.OK, MessageBoxImage.Error);
         e.Handled = true;
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Camera provider '{Provider}' not available: {Reason}")]
+    private static partial void LogProviderUnavailable(ILogger logger, string provider, string reason);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled UI exception")]
     private static partial void LogUnhandled(ILogger logger, Exception exception);

@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <!--
@@ -11,26 +12,41 @@
     Override the assembly location with:
       dotnet build -p:PylonNetAssembly="<path>\Basler.Pylon.dll"
 
-    The default below is derived from PYLON_DEV_DIR and has NOT been verified against an
-    installed SDK yet (see docs/PLAN.md, step 0 "local verification").
+    Default verified against pylon 9.2 (2026-10-27): the net8.0 build of the .NET API ships as
+    $(PYLON_DEV_DIR)\Assemblies\Basler.Pylon\net8.0\x64\Basler.Pylon.dll, the same path the
+    SDK's own net8.0 samples reference.
   -->
   <PropertyGroup>
-    <PylonNetAssembly Condition="'$(PylonNetAssembly)' == '' and '$(PYLON_DEV_DIR)' != ''">$(PYLON_DEV_DIR)\Assemblies\Basler.Pylon\x64\Basler.Pylon.dll</PylonNetAssembly>
+    <PylonNetAssembly Condition="'$(PylonNetAssembly)' == '' and '$(PYLON_DEV_DIR)' != ''">$([System.IO.Path]::Combine('$(PYLON_DEV_DIR)', 'Assemblies', 'Basler.Pylon', 'net8.0', 'x64', 'Basler.Pylon.dll'))</PylonNetAssembly>
     <HasPylon>false</HasPylon>
     <HasPylon Condition="'$(PylonNetAssembly)' != '' and Exists('$(PylonNetAssembly)')">true</HasPylon>
     <DefineConstants Condition="'$(HasPylon)' == 'true'">$(DefineConstants);HAS_PYLON</DefineConstants>
+    <!-- The API assembly is x64-only; the SDK samples silence the AnyCPU mismatch (MSB3270) the same way. -->
+    <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(HasPylon)' == 'true'">
     <Reference Include="Basler.Pylon">
       <HintPath>$(PylonNetAssembly)</HintPath>
-      <!-- The SDK installs its own runtime; do not copy the assembly into build output. -->
-      <Private>false</Private>
+      <!--
+        Copied to the (git-ignored) build output: .NET 8 has no GAC, so the managed API must sit
+        next to the app. The native runtime (Runtime\x64) is found through PATH; see PylonRuntime.
+      -->
+      <Private>true</Private>
     </Reference>
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Managed API only (Bayer demosaicing). Native runtimes are referenced by executable projects. -->
+    <PackageReference Include="OpenCvSharp4" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\CamBridge.Core\CamBridge.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CamBridge.Tests.Windows" />
   </ItemGroup>
 
   <Target Name="ReportPylonAvailability" BeforeTargets="CoreCompile">

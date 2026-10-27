@@ -21,11 +21,11 @@
 - [x] `.gitignore` 기본 설정, `README.md` 초안 (초기 커밋에 포함)
 - [x] [클라우드] `Directory.Build.props`(공통 설정, nullable, 경고 수준, Windows 프로젝트의 `EnableWindowsTargeting`)
 - [x] [클라우드] GitHub Actions: `net8.0` 프로젝트 빌드·테스트 (선택) — `.github/workflows/ci.yml`
-- [ ] [로컬] Basler pylon SDK 설치 확인 및 .NET API 참조 경로 확인 (개발자가 설치)
+- [x] [로컬] Basler pylon SDK 설치 확인 및 .NET API 참조 경로 확인 (개발자가 설치) — pylon 9.2, `D:\Program Files\Basler\pylon`
   - **로컬 검증 필요**: `CamBridge.Sources.Pylon.csproj`의 기본 경로
     `$(PYLON_DEV_DIR)\Assemblies\Basler.Pylon\x64\Basler.Pylon.dll`은 추정값. 실제 설치 경로 확인 후 수정
     (임시로 `dotnet build -p:PylonNetAssembly=<경로>`로 지정 가능). SDK 감지 시 빌드 로그에 `pylon SDK found` 출력, `HAS_PYLON` 상수 정의
-- [ ] [로컬] Windows에서 `dotnet build CamBridge.sln`, `dotnet test`, WPF 빈 창 실행 확인 (**로컬 검증 필요**)
+- [x] [로컬] Windows에서 `dotnet build CamBridge.sln`, `dotnet test`, WPF 빈 창 실행 확인 — 인계 체크리스트 A에서 완료
 
 클라우드 검증 결과(Linux, Microsoft 빌드 .NET SDK 8.0.427): 솔루션 전체(WPF 포함) 빌드 성공, 경고 0, 테스트 1/1 통과(OpenCV Linux 네이티브 런타임 로드 확인).
 참고: Ubuntu 기본 apt의 source-built SDK에는 WindowsDesktop SDK가 없어 WPF 프로젝트가 빌드되지 않는다. Microsoft 빌드 SDK가 필요하다.
@@ -131,12 +131,23 @@ public sealed class Frame : IDisposable
 
 ## 3단계 — pylon 에뮬레이터 연동 (2일)
 
-- [ ] `PylonProvider` / `PylonCamera` — Basler pylon .NET API
-- [ ] `PYLON_CAMEMU` 환경변수로 에뮬레이션 카메라 열거 확인
-- [ ] 노출·게인·트리거 모드·소프트웨어 트리거 매핑
-- [ ] 이름 기반 파라미터 접근을 pylon 파라미터 맵에 연결
-- [ ] SDK 미설치 환경에서도 솔루션 빌드·실행 가능하도록 처리 (플러그인 로딩 또는 조건부 참조)
-- [ ] 카메라 분리·재연결 등 오류 이벤트 처리
+- [x] `PylonProvider` / `PylonCamera` — Basler pylon .NET API (pylon 9.2, net8.0 x64 API)
+  - 장치 스레드 없음: pylon `Camera`는 자체 동기화. 획득은 `OneByOne` + `ProvidedByStreamGrabber`, `ImageGrabbed`(pylon 스레드)에서 `Frame.Rent`로 1회 복사(PaddingX 반영) 후 `FrameReceived`
+  - FrameId = BlockID를 `BlockIdUnwrapper`로 연속화(GigE 1..65535 순환 처리, 0=미지원 시 호스트 카운터). 실패한 grab은 FrameError + BlockID 공백 → 파이프라인 카메라측 드롭으로 집계
+  - 픽셀: Mono8, BGR8, RGB8(→BGR), Bayer 8bit(OpenCV 디모자이크 → Bgr8). 그 외는 형식당 1회 FrameError
+  - Open 시 `AcquisitionMode=Continuous`(에뮬레이터 기본값 SingleFrame이라 1장만 나옴), `MaxNumBuffer`, GigE `HeartbeatTimeout`(기본 1s, 디버거 연결 시 미적용 — pylon이 5분으로 자동 연장)
+- [x] `PYLON_CAMEMU` 환경변수로 에뮬레이션 카메라 열거 확인 — 2대(`Emulation (0815-0000/0001)`, SFNC 2.5)
+- [x] 노출·게인·트리거 모드·소프트웨어 트리거 매핑
+  - `FeatureNames`: ExposureTime→ExposureTimeAbs, Gain→GainRaw, AcquisitionFrameRate→AcquisitionFrameRateAbs(+Enable) — SFNC 2.x 우선, 없으면 1.x
+  - TriggerMode: Off / Software / Hardware → `TriggerSelector=FrameStart` + TriggerMode + TriggerSource(Hardware는 지정된 Line 유지, 없으면 Line1). 소프트웨어 트리거 전 `WaitForFrameTriggerReady`
+- [x] 이름 기반 파라미터 접근을 pylon 파라미터 맵에 연결 — 노드 순회, Visibility ≤ Expert(`PylonOptions.MaxVisibility`) 목록화, 범위·설명·단위(알려진 노드 보완). 목록은 장치 노드만(카메라 인스턴스 노드 `MaxNumBuffer` 등은 이름 조회 불가라 제외)
+- [x] SDK 미설치 환경에서도 솔루션 빌드·실행 가능하도록 처리 (플러그인 로딩 또는 조건부 참조)
+  - 조건부 참조(`HAS_PYLON`) + 항상 컴파일되는 `PylonProviderFactory.TryCreate`. SDK 없으면 사유 로그 후 미등록, 에뮬레이터 테스트는 Skip
+  - .NET 8엔 GAC가 없어 `Basler.Pylon.dll`을 출력에 복사(gitignore 대상). x64 전용 참조의 MSB3270은 SDK 샘플과 같은 방식으로 억제
+  - `PylonRuntime`: 설치 전에 시작된 프로세스용으로 `Runtime\x64`를 프로세스 PATH에, 영구 `PYLON_CAMEMU`를 프로세스 환경에 보충
+  - 주의: SDK 있음/없음 빌드를 번갈아 하면 App deps.json에 Basler.Pylon이 빠질 수 있음 → `--no-incremental`로 재빌드
+- [ ] 카메라 분리·재연결 등 오류 이벤트 처리 — `ConnectionLost` → `Disconnected` + `Faulted` 구현. 에뮬레이터로는 분리 재현 불가 → **실물 검증 필요**
+- 2026-10-27 로컬: 에뮬레이터 테스트 9개 + 순수 로직 11개 통과(전체 Windows 88, Core 98). 앱에서 "Basler pylon" 그룹에 에뮬레이터 2대 표시, 1024x1040 Mono8 수신 95.9fps·드롭 0·검사 96fps, 파라미터 패널(노출 µs·게인 dB·고급 목록) 정상 — 상위 코드 수정 없음
 
 **완료 기준**: 에뮬레이터 카메라로 연속 획득 및 소프트웨어 트리거 촬영 성공
 
@@ -248,8 +259,9 @@ public sealed class Frame : IDisposable
   - 2026-10-27 로컬: 93/93 통과, `runtimes/win-x64/native/OpenCvSharpExtern.dll` 로드 확인
 - [x] `dotnet run --project src/CamBridge.App` — 빈 WPF 창 표시
   - 2026-10-27 로컬: "CamBridge" 창 표시 확인
-- [ ] pylon SDK 설치 후 `Basler.Pylon.dll` 실제 경로 확인 → `src/CamBridge.Sources.Pylon/CamBridge.Sources.Pylon.csproj`의 `PylonNetAssembly` 기본값 수정(현재 `$(PYLON_DEV_DIR)\Assemblies\Basler.Pylon\x64\Basler.Pylon.dll`은 추정값)
-  - 설치판이 NuGet 패키지 형태로 .NET API를 제공하는지도 확인(그렇다면 조건부 PackageReference로 전환 검토)
+- [x] pylon SDK 설치 후 `Basler.Pylon.dll` 실제 경로 확인 → `src/CamBridge.Sources.Pylon/CamBridge.Sources.Pylon.csproj`의 `PylonNetAssembly` 기본값 수정(현재 `$(PYLON_DEV_DIR)\Assemblies\Basler.Pylon\x64\Basler.Pylon.dll`은 추정값)
+  - 실제: `$(PYLON_DEV_DIR)\Assemblies\Basler.Pylon\net8.0\x64\Basler.Pylon.dll`(SDK net8.0 샘플과 동일). 추정값은 `net8.0` 폴더가 빠져 있었음
+  - 설치판이 NuGet 패키지 형태로 .NET API를 제공하는지도 확인(그렇다면 조건부 PackageReference로 전환 검토) — 설치 폴더에 .nupkg 없음, HintPath 참조 유지
 
 ### B. 2단계 로컬 — 웹캠
 
@@ -265,11 +277,13 @@ public sealed class Frame : IDisposable
 
 ### C. 3단계 — pylon 에뮬레이터
 
-- [ ] `set PYLON_CAMEMU=2` 후 열거 확인, 노출·게인·트리거·소프트웨어 트리거 매핑, 이름 기반 파라미터 → pylon 파라미터 맵
-- [ ] pylon의 grab 결과 버퍼를 `Frame.Rent` 버퍼로 복사(Core에 SDK 타입 노출 금지). FrameId는 block ID 사용 → 카메라측 드롭 통계에 그대로 반영
-- [ ] 분리·재연결 → `ErrorOccurred(Disconnected)` + `CameraState.Faulted`
-- [ ] 실물(acA640-120gm, ace classic GigE) 대비: SFNC 1.x 이름(`ExposureTimeAbs`, `GainRaw`, `AcquisitionFrameRateAbs` 등, 도착 후 pylon Viewer로 확인)과 SFNC 2.x 이름을 노드 존재 여부로 둘 다 매핑. 에뮬레이터만으로는 이 차이가 검증되지 않음
-- [ ] 디버그 빌드용 GigE `HeartbeatTimeout` 연장 옵션(브레이크포인트 정지 시 분리 방지)
+- [x] `set PYLON_CAMEMU=2` 후 열거 확인, 노출·게인·트리거·소프트웨어 트리거 매핑, 이름 기반 파라미터 → pylon 파라미터 맵
+- [x] pylon의 grab 결과 버퍼를 `Frame.Rent` 버퍼로 복사(Core에 SDK 타입 노출 금지). FrameId는 block ID 사용 → 카메라측 드롭 통계에 그대로 반영
+- [ ] 분리·재연결 → `ErrorOccurred(Disconnected)` + `CameraState.Faulted` — 구현 완료, **실물 GigE로 검증 필요**(에뮬레이터는 분리 불가)
+- [x] 실물(acA640-120gm, ace classic GigE) 대비: SFNC 1.x 이름(`ExposureTimeAbs`, `GainRaw`, `AcquisitionFrameRateAbs` 등, 도착 후 pylon Viewer로 확인)과 SFNC 2.x 이름을 노드 존재 여부로 둘 다 매핑. 에뮬레이터만으로는 이 차이가 검증되지 않음
+  - 매핑 구현·단위 테스트 완료. 에뮬레이터는 신·구 이름을 모두 제공해 1.x 전용 경로는 **실물 검증 필요**
+- [x] 디버그 빌드용 GigE `HeartbeatTimeout` 연장 옵션(브레이크포인트 정지 시 분리 방지)
+  - 불필요로 확인: pylon이 디버거 감지 시 5분으로 자동 연장(SDK DeviceRemovalHandling 샘플 주석). 대신 `PylonOptions.HeartbeatTimeout`(기본 1s)을 디버거 없을 때만 적용해 분리 감지를 빠르게
 
 ### D. 4단계 로컬 — 장시간 실행
 

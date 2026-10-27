@@ -111,15 +111,16 @@
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="{x:Type vm:ParameterRowViewModel}">
                         <Grid Margin="0,1" ToolTip="{Binding ToolTip}">
+                            <!-- Capped: GenICam names can be very long (e.g. pylon's Bsl* nodes) and would squeeze out the editor. -->
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" SharedSizeGroup="Name" />
-                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" MaxWidth="150" SharedSizeGroup="Name" />
+                                <ColumnDefinition Width="*" MinWidth="90" />
                             </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
-                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Margin="0,0,8,0">
+                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Margin="0,0,8,0" TextTrimming="CharacterEllipsis">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
                                         <Style.Triggers>
