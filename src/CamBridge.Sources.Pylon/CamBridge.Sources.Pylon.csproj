@@ -17,6 +17,13 @@
     SDK's own net8.0 samples reference.
   -->
   <PropertyGroup>
+    <!--
+      A shell or IDE started before pylon was installed does not inherit PYLON_DEV_DIR. Falling back to
+      the persisted machine variable keeps every build on this PC consistent (with or without the SDK
+      in one output folder, the app's deps.json goes stale). Build without the SDK on such a PC with
+      -p:PylonNetAssembly=none.
+    -->
+    <PYLON_DEV_DIR Condition="'$(PYLON_DEV_DIR)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">$([MSBuild]::GetRegistryValue('HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 'PYLON_DEV_DIR'))</PYLON_DEV_DIR>
     <PylonNetAssembly Condition="'$(PylonNetAssembly)' == '' and '$(PYLON_DEV_DIR)' != ''">$([System.IO.Path]::Combine('$(PYLON_DEV_DIR)', 'Assemblies', 'Basler.Pylon', 'net8.0', 'x64', 'Basler.Pylon.dll'))</PylonNetAssembly>
     <HasPylon>false</HasPylon>
     <HasPylon Condition="'$(PylonNetAssembly)' != '' and Exists('$(PylonNetAssembly)')">true</HasPylon>

@@ -82,6 +82,27 @@ internal static class SoakReport
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"  {(buffersOk ? "PASS" : "FAIL")}  Outstanding buffers    max {maxOutstanding} (bound {bufferBound}: queues + live view slot + in flight)"));
 
+        // The whole run counts here, warm-up included: a dropped frame is never acceptable. When they
+        // happened tells a startup stall (first samples only) from ongoing loss on the link.
+        bool noDrops = last.TotalDropped == 0;
+        passed &= noDrops;
+        string when = string.Empty;
+        if (!noDrops)
+        {
+            SoakSample firstSeen = samples.First(s => s.TotalDropped > 0);
+            SoakSample settled = samples.First(s => s.TotalDropped == last.TotalDropped);
+            when = string.Create(CultureInfo.InvariantCulture,
+                $", first seen at {firstSeen.Elapsed:hh\\:mm\\:ss}, no more after {settled.Elapsed:hh\\:mm\\:ss}");
+        }
+
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {(noDrops ? "PASS" : "FAIL")}  Dropped frames         {last.TotalDropped} (camera side {last.CameraDropped}{when})"));
+
+        if (last.Elapsed - first.Elapsed < TimeSpan.FromMinutes(10))
+        {
+            output.WriteLine("  note  Short steady window: the slopes above are mostly noise; judge memory on a run of 30 minutes.");
+        }
+
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"  info  Memory               working set {first.WorkingSetMb:0.0} -> {last.WorkingSetMb:0.0} MB, private {first.PrivateMb:0.0} -> {last.PrivateMb:0.0} MB, retained managed {first.RetainedManagedMb:0.00} -> {last.RetainedManagedMb:0.00} MB"));
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
@@ -89,7 +110,6 @@ internal static class SoakReport
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"  info  Frames               received {last.Received:N0}, camera dropped {last.CameraDropped}, total dropped {last.TotalDropped}, OK {last.Ok:N0} / NG {last.Ng:N0}, saved {last.SavedFiles:N0}"));
         output.WriteLine($"  info  Consumers            {last.Consumers}");
-        output.WriteLine(passed ? "RESULT: PASS" : "RESULT: FAIL");
         return passed;
     }
 

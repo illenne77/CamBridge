@@ -288,11 +288,12 @@ public sealed class Frame : IDisposable
 ### D. 4단계 로컬 — 장시간 실행
 
 - [x] 에뮬레이터 30분 연속 획득 + 검사 소비자 + 저장 소비자. 작업 관리자/`dotnet-counters`로 프로세스 메모리·GC 힙 추이 확인
-  - 도구: `tools/CamBridge.Soak`(dotnet-counters 대신 프로세스 내 측정, 반복 가능). `dotnet run -c Release --project tools/CamBridge.Soak -- --minutes 30` (`--source folder`로 이미지 폴더도 가능). 결과는 `artifacts/soak/`(gitignore)의 samples.csv·summary.txt
+  - 도구: `tools/CamBridge.Soak`(dotnet-counters 대신 프로세스 내 측정, 반복 가능). `dotnet run -c Release --project tools/CamBridge.Soak -- --emulator --minutes 30` (기본은 실물 카메라, `--serial`로 지정, `--source folder`로 이미지 폴더도 가능). 결과는 `artifacts/soak/`(gitignore)의 samples.csv·summary.txt. 드롭·카메라 오류·Faulted가 있으면 FAIL
   - 구성: 에뮬레이터 640x480 Mono8(120fps 요청, 실제 약 92fps) → 파이프라인(검사 큐 2 + PNG 저장 1/100 큐 4) + 16ms 간격 라이브뷰 TryTake. 10초마다 워킹셋·Private·강제 Full GC 후 관리 힙·핸들·스레드·미반환 프레임 버퍼(계수 풀) 기록, 앞 20%는 워밍업으로 제외하고 기울기로 판정
   - 2026-10-27 결과 **PASS**: 30분 167,184프레임, 카메라 드롭 0 / 전체 드롭 0, 카메라 오류 0, PNG 1,672장. 정상 구간(6~30분) 기울기 — 남은 관리 힙 +0.025 MB/분(7.7~9.3MB 사이 진동), Private +0.012 MB/분(107.9→108.0MB), 핸들 −0.016/분(536 유지), 스레드 −0.035/분. 미반환 버퍼 최대 1, 정지 후 0/167,186
   - GC: gen0=gen1=gen2=541 — 전부 샘플링 때의 강제 GC, 자연 발생 GC 0회(프레임 버퍼 풀링으로 할당이 거의 없음)
   - 남은 관리 힙의 미세한 양(+)은 도구 자신이 쌓는 샘플 목록(10초당 1개) 수준. 실물 카메라 도착 후 같은 도구로 GigE에서 재실행 예정
+  - 관측(2026-10-30): 전체 재빌드 직후 첫 실행에서 시작 5초 안에 소비자 큐 드롭 66(검사 57, 저장 9, 카메라측 0) 1회, 재빌드 없이 4회 반복하면 0. 새 DLL의 첫 로드·JIT 지연으로 추정(원인 미증명). 검증 실행은 빌드 직후를 피한다
 
 ### E. 6단계 — UI 연결 메모
 
@@ -306,10 +307,42 @@ public sealed class Frame : IDisposable
 
 ## 카메라 도착 후 (1~2일)
 
-구매 모델: Basler **acA640-120gm** (GigE Vision, Mono, 659×494, 최대 약 120fps — 사양은 도착 후 확인). Mono8 기준 약 39MB/s로 1GbE에 여유 있음.
+카메라: Basler **acA640-120gm** (GigE Vision, Mono, 659×494, 최대 약 120fps, 라벨로 모델 확인. 해상도·속도는 연결 후 확인). Mono8 기준 약 39MB/s로 1GbE에 여유 있음. 전원은 PoE(802.3af) 또는 I/O 커넥터 12V 중 하나만(동시 공급 금지).
 
-- [ ] 도착 전 준비: 전용 NIC, 점보 프레임(9000), pylon GigE 필터/Performance 드라이버, 방화벽 예외, IP Configurator로 고정 IP 또는 LLA, 전원(PoE 인젝터·스위치 또는 6핀 I/O 12–24V)
+랜카드: **NEXT-POE3101EX** (Intel WGI210AT, PCIe v2.0 x1, RJ-45 1포트, PoE+ 최대 30W). 인터넷용 어댑터와 분리된 카메라 전용. 표준 802.3af/at 여부와 보조 전원 단자는 판매 페이지에서 확인되지 않아 설치 때 실물로 확인. 케이블: Cat5e, 카드와 카메라 직결.
+
+시리얼·MAC은 공개 저장소에 적지 않는다(카메라 라벨 참고).
+
+### 실물 연결 순서
+
+직접 진행:
+
+1. PC 전원을 끄고 카드 장착. 보조 전원 단자가 있으면 연결. 부팅 후 장치 관리자에서 I210 인식 확인.
+2. 점검: `powershell -ExecutionPolicy Bypass -File tools\camera-nic.ps1` — 어댑터 목록과 현재 설정 표시, 변경 없음.
+3. 설정: **관리자 PowerShell**에서 같은 명령에 `-Apply`. 점보 프레임 9014, 수신 버퍼 최대, 고정 IP 192.168.10.1/24(게이트웨이 없음), 이 인터페이스 한정 UDP 방화벽 규칙. 게이트웨이가 있는 어댑터(인터넷용)는 거부. `-WhatIf`로 미리 보기 가능.
+4. 렌즈를 끼우고 카메라 연결. 카드 LED: **파랑(PoE 공급) + 노랑(1000M)** 확인. 2번 명령으로 Link Up, 1 Gbps 재확인.
+5. pylon IP Configurator: 라벨의 MAC으로 카메라를 찾아 고정 IP 192.168.10.2/24 저장(같은 서브넷, Wi-Fi의 192.168.0.x와 다름).
+6. pylon Viewer: 연결 → 라이브 영상 → 초점·조리개 조정 → 120fps 몇 분, 드롭·재전송 확인. 여기까지 되면 SDK와 네트워크는 정상.
+
+문제가 생기면:
+
+| 증상 | 확인 |
+|---|---|
+| 파란 LED 꺼짐, 카메라 안 켜짐 | 보조 전원 단자 연결, 다른 케이블. 카드가 표준 PoE인지 |
+| 노란 LED 꺼짐(100M) | 케이블 교체 |
+| IP Configurator에 안 보임 | 어댑터 Link Up 여부, 방화벽 규칙, pylon GigE 드라이버 바인딩(2번 명령) |
+| 보이는데 "not reachable" | 카메라 IP를 어댑터와 같은 서브넷으로 설정 |
+| 영상이 끊기거나 재전송이 늘어남 | 패킷 크기(`GevSCPSPacketSize`) 8192, 점보 프레임, 케이블, Performance 드라이버 |
+
+Claude와 함께 진행(앱·도구 쪽 준비 완료, 실행은 카메라 필요):
+
+- [ ] 실물 검증 테스트: `dotnet test tests/CamBridge.Tests.Windows --filter "FullyQualifiedName~PylonRealCamera" --logger "console;verbosity=detailed"` — 어떤 노드가 쓰였는지(SFNC 1.x `ExposureTimeAbs`, `GainRaw`), GigE BlockID, 100fps 5초 공백·오류 0, 트리거, 전송 통계. **acA640-120gm이 pylon 9.2에서 정상 인식되는지도 여기서 확인**
+- [ ] 앱 확인: "Basler pylon" 그룹에 표시, 연결·라이브뷰·파라미터 패널·검사
+- [ ] 분리 감지: 획득 중 랜선 분리 → 상태 "오류", 로그 `Disconnected`(하트비트 1초, 디버거 없이 실행), 다시 꽂고 연결 해제 → 연결로 복구
+- [ ] 장시간 실행: `dotnet run -c Release --project tools/CamBridge.Soak -- --minutes 30 --set GevSCPSPacketSize=8192` — 120fps면 BlockID가 약 9분마다 65535에서 순환하므로 30분에 3회 지나감. 드롭 0이어야 FrameId 연속화 검증도 끝남. 빌드 직후 첫 실행은 제외(인계 체크리스트 D 참고)
+- [x] 도착 전 준비: NIC 점검·설정 스크립트(`tools/camera-nic.ps1`), 실물 검증 테스트, Soak 도구의 실물 카메라 지원, 연결 체크리스트
+  - 실제 하드웨어 없이 확인한 범위: 스크립트의 점검 경로와 거부 경로(인터넷 어댑터, I210 없음)만 실행 확인. **`-Apply`의 변경 동작은 카드가 있어야 처음 실행됨**. 실물 테스트 코드는 에뮬레이터를 실물로 간주해 일시 실행해 통과 확인(되돌림)
 - [ ] 실물 카메라 구현 연결 (Basler면 기존 `PylonCamera` 그대로, HIKROBOT이면 `Sources.Hik` 추가)
-- [ ] block ID 기반 카메라측 드롭(패킷 손실·재전송) 통계를 실물로 시연 — 웹캠에서는 측정 불가했던 항목
+- [ ] block ID 기반 카메라측 드롭(패킷 손실·재전송) 통계를 실물로 시연 — 웹캠에서는 측정 불가했던 항목. 파라미터 목록과 Soak 요약에 `Statistic_*`(전송 패킷·재전송·실패 버퍼) 노출 완료
 - [ ] 조명·렌즈 세팅, 실물 촬영 시연 영상 제작
 - [ ] README·크몽 서비스 페이지에 실물 시연 반영

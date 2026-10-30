@@ -44,6 +44,7 @@ public sealed class PylonEmulatorFactAttribute : FactAttribute
 }
 
 /// <summary>Emulator tests share one emulated device and therefore one class (no parallel access).</summary>
+[Collection("Pylon")]
 public sealed class PylonCameraTests : IAsyncLifetime
 {
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(15);
@@ -244,6 +245,44 @@ public sealed class PylonCameraTests : IAsyncLifetime
         Camera.SetParameter(ParameterNames.PixelFormat, "Mono8");
 
         Assert.All(formats, f => Assert.Equal((PixelFormat.Bgr8, 320 * 3), (f.Format, f.Stride)));
+    }
+
+    [PylonEmulatorFact]
+    public async Task Open_ReplacesAnUnsupportedPixelFormatWithMono8()
+    {
+        await Camera.OpenAsync();
+        Camera.SetParameter(ParameterNames.PixelFormat, "Mono12");
+        await Camera.CloseAsync();
+
+        await Camera.OpenAsync();
+
+        Assert.Equal("Mono8", Camera.GetParameter(ParameterNames.PixelFormat));
+    }
+
+    [PylonEmulatorFact]
+    public async Task AcquisitionFrameRate_EnablesTheRateAndAppliesIt()
+    {
+        await Camera.OpenAsync();
+        Camera.SetParameter("AcquisitionFrameRateEnable", false);
+
+        Camera.SetParameter(ParameterNames.AcquisitionFrameRate, 50.0);
+
+        Assert.Equal(true, Camera.GetParameter("AcquisitionFrameRateEnable"));
+        Assert.Equal(50.0, Assert.IsType<double>(Camera.GetParameter(ParameterNames.AcquisitionFrameRate)), precision: 3);
+    }
+
+    [PylonEmulatorFact]
+    public async Task StreamStatistics_AreReadOnlyParameters_WhenTheTransportHasThem()
+    {
+        await Camera.OpenAsync();
+
+        foreach (CameraParameter p in Camera.GetParameters().Where(p => p.Name.StartsWith("Statistic_", StringComparison.Ordinal)))
+        {
+            Assert.Equal(ParameterType.Integer, p.Type);
+            Assert.IsType<long>(Camera.GetParameter(p.Name));
+        }
+
+        Assert.Throws<KeyNotFoundException>(() => Camera.GetParameter("Statistic_NoSuchCounter"));
     }
 
     [PylonEmulatorFact]

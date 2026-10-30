@@ -11,8 +11,11 @@ using CamBridge.Sources.Pylon;
 
 // Usage:
 //   dotnet run -c Release --project tools/CamBridge.Soak -- [--source pylon|folder] [--minutes 30]
-//       [--fps 120] [--width 640] [--height 480] [--save-every 100] [--interval 10] [--out <dir>] [--keep-images]
-// pylon uses the first emulated camera (PYLON_CAMEMU is set to 2 for this process when missing).
+//       [--emulator | --serial <S/N>] [--fps 120] [--exposure 1000] [--width 640] [--height 480]
+//       [--set GevSCPSPacketSize=8192,Name=Value] [--save-every 100] [--interval 10] [--out <dir>] [--keep-images]
+// pylon uses the first real camera, or the given serial; --emulator uses an emulated one instead
+// (PYLON_CAMEMU is set to 2 for this process when missing). Width and height default to the full
+// sensor on a real camera and to 640x480 on the emulator.
 Dictionary<string, string> options = ParseArgs(args);
 string source = options.GetValueOrDefault("source", "pylon");
 TimeSpan duration = TimeSpan.FromMinutes(Number("minutes", 30));
@@ -32,6 +35,19 @@ camera.ErrorOccurred += (_, e) =>
     if (Interlocked.Increment(ref cameraErrors) <= 5)
     {
         Console.WriteLine($"  camera error {e.Kind}: {e.Message}");
+    }
+};
+
+using var stop = new CancellationTokenSource();
+bool faulted = false;
+camera.StateChanged += (_, e) =>
+{
+    if (e.NewState == CameraState.Faulted)
+    {
+        // Raised on a camera thread: a dead camera would otherwise keep "passing" at 0 fps.
+        Volatile.Write(ref faulted, true);
+        Console.WriteLine("  camera faulted; stopping the run");
+        stop.Cancel();
     }
 };
 
@@ -65,7 +81,6 @@ Console.WriteLine($"Output: {outDir}");
 using var csv = new StreamWriter(Path.Combine(outDir, "samples.csv"));
 await csv.WriteLineAsync(SoakSample.CsvHeader);
 
-using var stop = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) =>
 {
     e.Cancel = true;
@@ -108,6 +123,7 @@ catch (OperationCanceledException)
 }
 
 stop.Cancel();
+string transport = ReadTransportStatistics(camera); // before stopping: the counters belong to the stream
 await camera.StopAcquisitionAsync();
 await pipeline.StopAsync(drain: false);
 try
@@ -125,8 +141,16 @@ await camera.DisposeAsync();
 using (var summary = new StringWriter(CultureInfo.InvariantCulture))
 {
     bool passed = SoakReport.Write(samples, warmUp, bufferBound, summary);
-    summary.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  info  Camera errors        {cameraErrors}"));
+    passed &= cameraErrors == 0 && !Volatile.Read(ref faulted);
+    summary.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {(cameraErrors == 0 ? "PASS" : "FAIL")}  Camera errors        {cameraErrors}"));
+    summary.WriteLine($"  {(Volatile.Read(ref faulted) ? "FAIL" : "PASS")}  Camera state         {(Volatile.Read(ref faulted) ? "faulted during the run" : "healthy")}");
     summary.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  info  Buffers after stop   {pool.Outstanding} outstanding of {pool.Rented:N0} rented"));
+    if (transport.Length > 0)
+    {
+        summary.WriteLine($"  info  Transport            {transport}");
+    }
+
+    summary.WriteLine(passed ? "RESULT: PASS" : "RESULT: FAIL");
     Console.Write(summary);
     await File.WriteAllTextAsync(Path.Combine(outDir, "summary.txt"), summary.ToString());
 
@@ -175,7 +199,8 @@ async Task<ICamera> CreateCameraAsync()
         return new ImageFolderCamera(ImageFolderProvider.CreateInfo(folder), new ImageFolderOptions { BufferPool = pool });
     }
 
-    if (Environment.GetEnvironmentVariable("PYLON_CAMEMU") is null)
+    bool emulator = options.ContainsKey("emulator");
+    if (emulator && Environment.GetEnvironmentVariable("PYLON_CAMEMU") is null)
     {
         Environment.SetEnvironmentVariable("PYLON_CAMEMU", "2");
     }
@@ -183,23 +208,72 @@ async Task<ICamera> CreateCameraAsync()
     ICameraProvider provider = PylonProviderFactory.TryCreate(new PylonOptions { BufferPool = pool }, out string? reason)
         ?? throw new InvalidOperationException($"pylon is not available: {reason}");
     IReadOnlyList<CameraInfo> cameras = await provider.EnumerateAsync();
-    CameraInfo info = cameras.FirstOrDefault(c => c.Interface == CameraInterface.Emulated)
-        ?? (cameras.Count > 0 ? cameras[0] : throw new InvalidOperationException("No pylon camera found."));
-    return provider.Create(info);
+    string? serial = options.GetValueOrDefault("serial");
+    CameraInfo? info = serial is not null ? cameras.FirstOrDefault(c => c.SerialNumber == serial)
+        : emulator ? cameras.FirstOrDefault(c => c.Interface == CameraInterface.Emulated)
+        : cameras.FirstOrDefault(c => c.Interface != CameraInterface.Emulated);
+    return provider.Create(info ?? throw new InvalidOperationException(
+        $"No matching pylon camera among {cameras.Count} found. Check power and network, or pass --emulator to use an emulated camera."));
 }
 
 void Configure(ICamera camera)
 {
     if (source != "folder")
     {
+        bool emulated = camera.Info.Interface == CameraInterface.Emulated;
         camera.SetParameter(ParameterNames.PixelFormat, "Mono8");
-        camera.SetParameter(ParameterNames.Width, (long)Number("width", 640));
-        camera.SetParameter(ParameterNames.Height, (long)Number("height", 480));
-        camera.ExposureTimeUs = 1000;
+        if (options.ContainsKey("width") || emulated)
+        {
+            camera.SetParameter(ParameterNames.Width, (long)Number("width", 640));
+        }
+
+        if (options.ContainsKey("height") || emulated)
+        {
+            camera.SetParameter(ParameterNames.Height, (long)Number("height", 480));
+        }
+
+        if (camera.FindParameter(ParameterNames.ExposureAuto) is { IsAvailable: true })
+        {
+            camera.SetParameter(ParameterNames.ExposureAuto, "Off"); // otherwise ExposureTime is locked
+        }
+
+        camera.ExposureTimeUs = Number("exposure", 1000);
     }
 
     camera.TriggerMode = TriggerMode.Off;
     camera.SetParameter(ParameterNames.AcquisitionFrameRate, fps);
+
+    foreach (string assignment in options.GetValueOrDefault("set", string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries))
+    {
+        string[] pair = assignment.Split('=', 2);
+        camera.SetParameter(pair[0], pair[1]);
+        Console.WriteLine($"Set {pair[0]} = {camera.GetParameter(pair[0])}");
+    }
+}
+
+// Counters only the pylon source exposes (GigE: lost and resent packets); empty for other sources.
+static string ReadTransportStatistics(ICamera camera)
+{
+    string[] names =
+    [
+        "Statistic_Total_Buffer_Count", "Statistic_Failed_Buffer_Count", "Statistic_Buffer_Underrun_Count",
+        "Statistic_Total_Packet_Count", "Statistic_Failed_Packet_Count", "Statistic_Resend_Request_Count", "Statistic_Resend_Packet_Count",
+    ];
+    var parts = new List<string>();
+    foreach (string name in names)
+    {
+        try
+        {
+            parts.Add($"{name["Statistic_".Length..]}={camera.GetParameter(name)}");
+        }
+#pragma warning disable CA1031 // Best effort: absent counters, or a camera that is already gone.
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+        }
+    }
+
+    return string.Join(", ", parts);
 }
 
 double Number(string name, double fallback) =>

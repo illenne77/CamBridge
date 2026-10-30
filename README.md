@@ -114,14 +114,14 @@ dotnet run --project src/CamBridge.App
 - pylon SDK가 설치되어 있으면 `PYLON_DEV_DIR` 환경변수로 자동 감지합니다(`Assemblies\Basler.Pylon\net8.0\x64\Basler.Pylon.dll`). 경로가 다르면 `dotnet build -p:PylonNetAssembly="<경로>\Basler.Pylon.dll"`로 지정합니다.
 - pylon 에뮬레이터를 쓰려면 앱 실행 전에 `set PYLON_CAMEMU=2`를 설정합니다. 카메라 목록의 "Basler pylon" 아래에 에뮬레이션 카메라 2대가 나타납니다.
 - 앱은 시작 시 `samples/part-inspection`의 이미지 폴더와 레시피를 불러옵니다. 카메라 목록에서 `images`를 연결하고 시작하면 바로 검사 시연이 됩니다.
-- SDK 유무를 바꿔 다시 빌드할 때는 `--no-incremental`을 붙입니다(앱의 deps.json 갱신).
+- 환경변수가 없는 셸에서는 시스템에 저장된 `PYLON_DEV_DIR`을 읽습니다. SDK가 있는 PC에서 SDK 없이 빌드해 보려면 `-p:PylonNetAssembly=none`을 쓰고, 그 뒤 다시 SDK로 빌드할 때는 `--no-incremental`을 붙입니다(앱의 deps.json 갱신).
 
 ## 테스트
 
 ```
 dotnet test tests/CamBridge.Tests            # 크로스플랫폼 (CI에서 실행)
 dotnet test tests/CamBridge.Tests.Windows    # 웹캠·pylon 에뮬레이터·UI 계산 (장치가 없으면 Skip)
-dotnet run -c Release --project tools/CamBridge.Soak -- --minutes 30   # 장시간 실행
+dotnet run -c Release --project tools/CamBridge.Soak -- --minutes 30   # 장시간 실행 (실물 카메라, 에뮬레이터는 --emulator)
 ```
 
 ## 새 카메라 제조사 추가하기
@@ -151,6 +151,6 @@ dotnet run -c Release --project tools/CamBridge.Soak -- --minutes 30   # 장시�
 ## 현재 상태
 
 - 웹캠, 이미지 폴더, pylon 에뮬레이터로 획득·검사·UI 전체 흐름을 구현하고 검증했습니다.
-- 실물 Basler GigE 카메라(acA640-120gm)로 확인할 항목: 분리·재연결, SFNC 1.x 전용 노드 이름, GigE 전송 손실 통계.
+- 실물 Basler GigE 카메라(acA640-120gm)로 확인할 항목: 분리·재연결, SFNC 1.x 전용 노드 이름, GigE 전송 손실 통계. 검증 테스트(`PylonRealCamera`)와 NIC 설정 스크립트(`tools/camera-nic.ps1`)는 준비되어 있습니다.
 
 작업 계획과 진행 상황은 [docs/PLAN.md](docs/PLAN.md)를 참고하세요.

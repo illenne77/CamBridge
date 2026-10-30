@@ -36,6 +36,23 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
         ParameterNames.TriggerMode, ParameterNames.TriggerSoftware,
     };
 
+    /// <summary>
+    /// Transport counters of the stream grabber. They live outside the device node map, so a plain
+    /// name does not reach them; exposed read-only under these names to judge a GigE link.
+    /// </summary>
+    private static readonly Dictionary<string, IntegerName> StreamStatistics = new(StringComparer.Ordinal)
+    {
+        ["Statistic_Total_Buffer_Count"] = PLStream.Statistic_Total_Buffer_Count,
+        ["Statistic_Failed_Buffer_Count"] = PLStream.Statistic_Failed_Buffer_Count,
+        ["Statistic_Buffer_Underrun_Count"] = PLStream.Statistic_Buffer_Underrun_Count,
+        ["Statistic_Total_Packet_Count"] = PLStream.Statistic_Total_Packet_Count,
+        ["Statistic_Failed_Packet_Count"] = PLStream.Statistic_Failed_Packet_Count,
+        ["Statistic_Resend_Request_Count"] = PLStream.Statistic_Resend_Request_Count,
+        ["Statistic_Resend_Packet_Count"] = PLStream.Statistic_Resend_Packet_Count,
+        ["Statistic_Missed_Frame_Count"] = PLStream.Statistic_Missed_Frame_Count,
+        ["Statistic_Resynchronization_Count"] = PLStream.Statistic_Resynchronization_Count,
+    };
+
     private readonly ArrayPool<byte> _pool = options.BufferPool ?? ArrayPool<byte>.Shared;
     private readonly object _sync = new();
 
@@ -266,6 +283,15 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
                     Add(Describe(node, node.Name));
                 }
             }
+
+            foreach ((string name, IntegerName node) in StreamStatistics)
+            {
+                IIntegerParameter statistic = camera.Parameters[node];
+                if (!statistic.IsEmpty)
+                {
+                    Add(Describe(statistic, name));
+                }
+            }
         }
 
         return parameters;
@@ -323,6 +349,12 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
             throw new InvalidOperationException($"{name} is a command; use ExecuteCommand.");
         }
 
+        if (name == ParameterNames.AcquisitionFrameRate)
+        {
+            // The rate applies only when enabled, and some cameras lock the value until then: enable first.
+            camera.Parameters[PLCamera.AcquisitionFrameRateEnable].TrySetValue(true);
+        }
+
         IParameter node = Node(camera, name);
         if (!node.IsWritable)
         {
@@ -361,11 +393,6 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
 
             default:
                 throw new InvalidOperationException($"{name} cannot be set (node type {node.GetType().Name}).");
-        }
-
-        if (name == ParameterNames.AcquisitionFrameRate)
-        {
-            camera.Parameters[PLCamera.AcquisitionFrameRateEnable].TrySetValue(true); // the rate only applies when enabled
         }
     }
 
@@ -412,6 +439,14 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
             _isGigE = PylonProvider.InterfaceOf(device[CameraInfoKey.DeviceType] ?? string.Empty) == CameraInterface.GigE;
             camera.Parameters[PLCamera.AcquisitionMode].TrySetValue(PLCamera.AcquisitionMode.Continuous); // default may be SingleFrame
             camera.Parameters[PLCameraInstance.MaxNumBuffer].TrySetValue(options.BufferCount);
+
+            // A format left over from another tool (e.g. Mono12) would only produce errors here.
+            IEnumParameter pixelFormat = camera.Parameters[PLCamera.PixelFormat];
+            if (!IsSupportedPixelFormat(pixelFormat.GetValueOrDefault(string.Empty)))
+            {
+                pixelFormat.TrySetValue(PLCamera.PixelFormat.Mono8);
+            }
+
             if (_isGigE && options.HeartbeatTimeout is TimeSpan heartbeat && !Debugger.IsAttached)
             {
                 camera.Parameters[PLTransportLayer.HeartbeatTimeout].TrySetValue((int)heartbeat.TotalMilliseconds, IntegerValueCorrection.Nearest);
@@ -615,10 +650,20 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
     private static string? Resolve(PylonCameraApi camera, string name) =>
         FeatureNames.Resolve(name, n => !camera.Parameters[n].IsEmpty);
 
-    private static IParameter Node(PylonCameraApi camera, string name) =>
-        Resolve(camera, name) is string node
+    private static IParameter Node(PylonCameraApi camera, string name)
+    {
+        if (StreamStatistics.TryGetValue(name, out IntegerName statistic) && camera.Parameters[statistic] is { IsEmpty: false } counter)
+        {
+            return counter;
+        }
+
+        return Resolve(camera, name) is string node
             ? camera.Parameters[node]
             : throw new KeyNotFoundException($"Unknown parameter '{name}'.");
+    }
+
+    private static bool IsSupportedPixelFormat(string pixelFormat) =>
+        pixelFormat is "Mono8" or "BGR8" or "BGR8Packed" or "RGB8" or "RGB8Packed" or "BayerRG8" or "BayerBG8" or "BayerGR8" or "BayerGB8";
 
     private bool IsListed(IParameter node)
     {
