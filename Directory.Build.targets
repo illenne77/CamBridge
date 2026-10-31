@@ -1,0 +1,14 @@
+<Project>
+
+  <!--
+    OpenCvSharp4 4.13+ ships an analyzer built against Roslyn 4.14, which raises CS9057 on
+    older compilers (e.g. .NET 8.0.4xx SDK). ExcludeAssets="analyzers" does not remove it,
+    so drop it here to keep builds identical across SDK / Visual Studio versions.
+  -->
+  <Target Name="RemoveOpenCvSharpAnalyzer" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <Analyzer Remove="@(Analyzer)" Condition="'%(Filename)' == 'OpenCvSharp.Analyzers'" />
+    </ItemGroup>
+  </Target>
+
+</Project>

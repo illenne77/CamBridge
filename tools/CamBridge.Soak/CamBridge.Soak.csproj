@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Long-running acquisition check: camera -> pipeline (inspection + image saving + live view
+    pull) for N minutes while sampling memory, GC and pipeline counters. Windows-only because it
+    can drive the pylon source; run it locally, not in CI.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OpenCvSharp4.runtime.win" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CamBridge.Core\CamBridge.Core.csproj" />
+    <ProjectReference Include="..\..\src\CamBridge.Pipeline\CamBridge.Pipeline.csproj" />
+    <ProjectReference Include="..\..\src\CamBridge.Inspection\CamBridge.Inspection.csproj" />
+    <ProjectReference Include="..\..\src\CamBridge.Sources.ImageFolder\CamBridge.Sources.ImageFolder.csproj" />
+    <ProjectReference Include="..\..\src\CamBridge.Sources.Pylon\CamBridge.Sources.Pylon.csproj" />
+  </ItemGroup>
+
+</Project>

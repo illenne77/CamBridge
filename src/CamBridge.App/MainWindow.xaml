@@ -1,0 +1,121 @@
+<Window x:Class="CamBridge.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:CamBridge.App.ViewModels"
+        xmlns:views="clr-namespace:CamBridge.App.Views"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
+        Title="CamBridge" Width="1280" Height="800" MinWidth="900" MinHeight="560">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+
+        <CollectionViewSource x:Key="GroupedCameras" Source="{Binding Cameras}">
+            <CollectionViewSource.GroupDescriptions>
+                <PropertyGroupDescription PropertyName="VendorName" />
+            </CollectionViewSource.GroupDescriptions>
+        </CollectionViewSource>
+
+        <Style x:Key="PanelHeader" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="10,3" />
+            <Setter Property="Margin" Value="0,0,6,6" />
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <!-- Status bar: statistics are always visible (design principle 7). -->
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock Text="{Binding StateText}" FontWeight="SemiBold" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem>
+                <TextBlock Text="{Binding ReceivedText}" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem>
+                <TextBlock Text="{Binding DroppedText}" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem>
+                <TextBlock Text="{Binding ConsumersText}" />
+            </StatusBarItem>
+        </StatusBar>
+
+        <!-- Recent log entries, newest first. -->
+        <ListBox DockPanel.Dock="Bottom" Height="96" ItemsSource="{Binding LogEntries}"
+                 FontFamily="Consolas" FontSize="11" BorderThickness="0,1,0,0">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock>
+                        <Run Text="{Binding Timestamp, StringFormat=HH:mm:ss.fff, Mode=OneWay}" Foreground="Gray" />
+                        <Run Text="{Binding LevelShort, Mode=OneWay}" />
+                        <Run Text="{Binding ShortCategory, Mode=OneWay}" Foreground="SteelBlue" />
+                        <Run Text="{Binding Message, Mode=OneWay}" />
+                    </TextBlock>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="300" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Camera panel -->
+            <DockPanel Grid.Column="0" Margin="8">
+                <TextBlock DockPanel.Dock="Top" Text="카메라" Style="{StaticResource PanelHeader}" />
+
+                <StackPanel DockPanel.Dock="Bottom">
+                    <TextBlock Text="{Binding ConnectedCameraName, StringFormat=연결: {0}}" TextWrapping="Wrap" Margin="0,0,0,6" />
+                    <WrapPanel>
+                        <Button Content="새로고침" Command="{Binding RefreshCamerasCommand}" />
+                        <Button Content="연결" Command="{Binding ConnectCommand}" />
+                        <Button Content="연결 해제" Command="{Binding DisconnectCommand}" />
+                    </WrapPanel>
+                    <WrapPanel>
+                        <Button Content="▶ 시작" Command="{Binding StartCommand}" />
+                        <Button Content="■ 정지" Command="{Binding StopCommand}" />
+                    </WrapPanel>
+                    <TextBlock Text="{Binding EnumerationMessage}" Foreground="DarkOrange" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding ErrorMessage}" Foreground="Firebrick" TextWrapping="Wrap" />
+                </StackPanel>
+
+                <ListBox ItemsSource="{Binding Source={StaticResource GroupedCameras}}"
+                         SelectedItem="{Binding SelectedCamera}" DisplayMemberPath="DisplayName" Margin="0,0,0,8">
+                    <ListBox.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.HeaderTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="DimGray" Margin="2,6,0,2" />
+                                </DataTemplate>
+                            </GroupStyle.HeaderTemplate>
+                        </GroupStyle>
+                    </ListBox.GroupStyle>
+                </ListBox>
+            </DockPanel>
+
+            <!-- Live view -->
+            <views:LiveView Grid.Column="1" Source="{Binding LiveFrames}" Overlay="{Binding Inspection}"
+                            DisplayFps="{Binding DisplayFps, Mode=OneWayToSource}" />
+
+            <TabControl Grid.Column="2" Margin="8">
+                <TabItem Header="검사">
+                    <views:InspectionPanel DataContext="{Binding Inspection}" />
+                </TabItem>
+                <TabItem Header="파라미터">
+                    <views:ParametersPanel DataContext="{Binding Parameters}" />
+                </TabItem>
+            </TabControl>
+        </Grid>
+    </DockPanel>
+</Window>

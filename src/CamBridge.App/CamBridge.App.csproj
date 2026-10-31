@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- Frame buffers are pinned and copied into WriteableBitmap back buffers. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CamBridge.Core\CamBridge.Core.csproj" />
+    <ProjectReference Include="..\CamBridge.Pipeline\CamBridge.Pipeline.csproj" />
+    <ProjectReference Include="..\CamBridge.Inspection\CamBridge.Inspection.csproj" />
+    <ProjectReference Include="..\CamBridge.Sources.ImageFolder\CamBridge.Sources.ImageFolder.csproj" />
+    <ProjectReference Include="..\CamBridge.Sources.Webcam\CamBridge.Sources.Webcam.csproj" />
+    <ProjectReference Include="..\CamBridge.Sources.Pylon\CamBridge.Sources.Pylon.csproj" />
+  </ItemGroup>
+
+</Project>

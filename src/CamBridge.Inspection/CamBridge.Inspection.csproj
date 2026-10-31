@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Frame buffers are pinned and wrapped as OpenCV Mats without copying. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Managed API only. Native runtimes are referenced by executable projects (App, Tests). -->
+    <PackageReference Include="OpenCvSharp4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CamBridge.Core\CamBridge.Core.csproj" />
+    <!-- Inspection plugs into the pipeline as a consumer; the pipeline knows nothing about inspection. -->
+    <ProjectReference Include="..\CamBridge.Pipeline\CamBridge.Pipeline.csproj" />
+  </ItemGroup>
+
+</Project>

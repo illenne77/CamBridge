@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <!-- OpenCV native runtime chosen by the build host OS. -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PackageReference Include="OpenCvSharp4.runtime.win" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <PackageReference Include="OpenCvSharp4.official.runtime.linux-x64" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CamBridge.Core\CamBridge.Core.csproj" />
+    <ProjectReference Include="..\..\src\CamBridge.Pipeline\CamBridge.Pipeline.csproj" />
+    <ProjectReference Include="..\..\src\CamBridge.Inspection\CamBridge.Inspection.csproj" />
+    <ProjectReference Include="..\..\src\CamBridge.Sources.ImageFolder\CamBridge.Sources.ImageFolder.csproj" />
+    <ProjectReference Include="..\..\tools\CamBridge.SampleGenerator\CamBridge.SampleGenerator.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -96,7 +96,15 @@ docs/
 ```
 dotnet build CamBridge.sln
 dotnet test tests/CamBridge.Tests
+dotnet test tests/CamBridge.Tests.Windows    # Windows 전용: 웹캠·pylon 에뮬레이터·실물 카메라 (장치가 없으면 Skip)
 dotnet run --project src/CamBridge.App
+dotnet run -c Release --project tools/CamBridge.Soak -- --minutes 30    # 장시간 실행 (에뮬레이터는 --emulator)
+```
+
+카메라 네트워크 점검·설정 (`-Apply`는 관리자 권한 필요):
+
+```
+powershell -ExecutionPolicy Bypass -File tools\camera-nic.ps1
 ```
 
 pylon 에뮬레이터 활성화 (에뮬레이션 카메라 2대):

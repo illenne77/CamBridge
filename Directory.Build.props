@@ -1,0 +1,20 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <Deterministic>true</Deterministic>
+
+    <!-- Lets net8.0-windows projects (WPF, Webcam, Pylon) compile on Linux.
+         Has no effect on plain net8.0 projects. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <Authors>CamBridge</Authors>
+    <Product>CamBridge</Product>
+  </PropertyGroup>
+
+</Project>

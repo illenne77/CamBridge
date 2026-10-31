@@ -1,0 +1,3 @@
+[*.cs]
+# Test names use Method_Scenario_Expectation underscores.
+dotnet_diagnostic.CA1707.severity = none
