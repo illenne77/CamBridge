@@ -14,11 +14,17 @@ public enum CameraErrorKind
     Other,
 }
 
-public sealed class CameraErrorEventArgs(CameraErrorKind kind, string message, Exception? exception = null) : EventArgs
+public sealed class CameraErrorEventArgs(CameraErrorKind kind, string message, Exception? exception = null, long? lostFrameId = null) : EventArgs
 {
     public CameraErrorKind Kind { get; } = kind;
 
     public string Message { get; } = message;
 
     public Exception? Exception { get; } = exception;
+
+    /// <summary>
+    /// The <see cref="Frame.FrameId"/> of the frame this error lost, when the camera knows it. Lets
+    /// the loss count right away instead of at the next good frame, which may never come.
+    /// </summary>
+    public long? LostFrameId { get; } = lostFrameId;
 }

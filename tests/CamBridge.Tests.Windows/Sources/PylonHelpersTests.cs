@@ -79,6 +79,29 @@ public sealed class BlockIdUnwrapperTests
     }
 
     [Fact]
+    public void GigE_LostFrames_AreNumberedLikeGoodFrames_AcrossTheWrap()
+    {
+        var ids = new BlockIdUnwrapper(sixteenBitWrap: true);
+
+        Assert.Equal(65534, ids.Next(65534));
+        Assert.Equal(65535, ids.NextLost(65535));
+        Assert.Equal(65536, ids.NextLost(1));
+        Assert.Equal(65537, ids.Next(2));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void LostFrame_WithoutABlockId_IsUnknown_AndDoesNotDisturbTheNumbering(long raw)
+    {
+        var ids = new BlockIdUnwrapper(sixteenBitWrap: true);
+        ids.Next(100);
+
+        Assert.Null(ids.NextLost(raw));
+        Assert.Equal(101, ids.Next(101));
+    }
+
+    [Fact]
     public void Usb_PassesThrough64BitIds()
     {
         var ids = new BlockIdUnwrapper(sixteenBitWrap: false);

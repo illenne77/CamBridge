@@ -24,14 +24,16 @@ namespace CamBridge.Sources.Pylon;
 /// buffer into a pooled <see cref="Frame"/> and raises <see cref="FrameReceived"/>.
 /// </para>
 /// <para>
-/// <see cref="Frame.FrameId"/> is the unwrapped block ID, so frames lost in transport become
-/// gaps the pipeline counts as camera-side drops. Vendor-neutral names (ExposureTime, Gain,
+/// <see cref="Frame.FrameId"/> is the unwrapped block ID, so frames lost in transport are reported
+/// by id or become gaps, and the pipeline counts both as camera-side drops. Vendor-neutral names (ExposureTime, Gain,
 /// AcquisitionFrameRate) resolve to SFNC 2.x nodes or their SFNC 1.x equivalents.
 /// </para>
 /// </remarks>
 internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : ICamera
 {
     private const string PacketSizeNode = "GevSCPSPacketSize";
+    private const string StreamTypeName = "StreamType";
+    private const string SocketBufferName = "SocketBufferSize";
 
     private static readonly HashSet<string> OwnNames = new(StringComparer.Ordinal)
     {
@@ -54,6 +56,9 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
         ["Statistic_Missed_Frame_Count"] = PLStream.Statistic_Missed_Frame_Count,
         ["Statistic_Resynchronization_Count"] = PLStream.Statistic_Resynchronization_Count,
     };
+
+    /// <summary>Stream grabber settings, which a plain name does not reach either. They apply from the next acquisition start.</summary>
+    private static readonly string[] StreamSettingNames = [StreamTypeName, SocketBufferName];
 
     private readonly ArrayPool<byte> _pool = options.BufferPool ?? ArrayPool<byte>.Shared;
     private readonly object _sync = new();
@@ -283,6 +288,14 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
                 if (!OwnNames.Contains(node.Name) && IsListed(node) && !camera.Parameters[node.Name].IsEmpty)
                 {
                     Add(Describe(node, node.Name));
+                }
+            }
+
+            foreach (string name in StreamSettingNames)
+            {
+                if (StreamSetting(camera, name) is { IsEmpty: false } setting)
+                {
+                    Add(Describe(setting, name));
                 }
             }
 
@@ -541,9 +554,10 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
             IGrabResult result = e.GrabResult;
             if (!result.GrabSucceeded)
             {
+                // A failed grab keeps its block ID, so the loss counts now even if every frame fails.
                 RaiseError(CameraErrorKind.FrameError, string.Create(CultureInfo.InvariantCulture,
-                    $"Grab failed (0x{result.ErrorCode:X}): {result.ErrorDescription}"));
-                return; // the missing block ID is counted as a camera-side drop
+                    $"Grab failed (0x{result.ErrorCode:X}): {result.ErrorDescription}"), lostFrameId: _ids.NextLost(result.BlockID));
+                return;
             }
 
             long frameId = _ids.Next(result.BlockID);
@@ -663,11 +677,23 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
     private static string? Resolve(PylonCameraApi camera, string name) =>
         FeatureNames.Resolve(name, n => !camera.Parameters[n].IsEmpty);
 
+    private static IParameter? StreamSetting(PylonCameraApi camera, string name) => name switch
+    {
+        StreamTypeName => camera.Parameters[PLStream.Type],
+        SocketBufferName => camera.Parameters[PLStream.SocketBufferSize],
+        _ => null,
+    };
+
     private static IParameter Node(PylonCameraApi camera, string name)
     {
         if (StreamStatistics.TryGetValue(name, out IntegerName statistic) && camera.Parameters[statistic] is { IsEmpty: false } counter)
         {
             return counter;
+        }
+
+        if (StreamSetting(camera, name) is { IsEmpty: false } setting)
+        {
+            return setting;
         }
 
         return Resolve(camera, name) is string node
@@ -784,8 +810,8 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
     private void RaiseStateChanged(CameraState oldState, CameraState newState) =>
         StateChanged?.Invoke(this, new CameraStateChangedEventArgs(oldState, newState));
 
-    private void RaiseError(CameraErrorKind kind, string message, Exception? exception = null) =>
-        ErrorOccurred?.Invoke(this, new CameraErrorEventArgs(kind, message, exception));
+    private void RaiseError(CameraErrorKind kind, string message, Exception? exception = null, long? lostFrameId = null) =>
+        ErrorOccurred?.Invoke(this, new CameraErrorEventArgs(kind, message, exception, lostFrameId));
 
     private static double ToDouble(object value) => Convert.ToDouble(value, CultureInfo.InvariantCulture);
 

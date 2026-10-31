@@ -22,11 +22,13 @@ internal sealed class FakeCamera(CameraInfo info) : ICamera
 
     public event EventHandler<FrameReceivedEventArgs>? FrameReceived;
 
-#pragma warning disable CS0067 // Part of the contract but never raised by this fake.
     public event EventHandler<CameraErrorEventArgs>? ErrorOccurred;
 
+#pragma warning disable CS0067 // Part of the contract but never raised by this fake.
     public event EventHandler<CameraStateChangedEventArgs>? StateChanged;
 #pragma warning restore CS0067
+
+    public void RaiseError(CameraErrorEventArgs error) => ErrorOccurred?.Invoke(this, error);
 
     public void Emit(Frame frame)
     {

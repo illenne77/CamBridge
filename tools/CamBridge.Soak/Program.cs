@@ -185,7 +185,7 @@ SoakSample Sample(TimeSpan elapsed, PipelineStatistics stats)
         stats.CameraDroppedFrames,
         stats.TotalDroppedFrames,
         string.Join("; ", stats.Consumers.Select(c => string.Create(CultureInfo.InvariantCulture,
-            $"{c.Name} {c.ProcessedFps:0.0}fps q{c.QueueLength}/{c.QueueCapacity} drop {c.DroppedFrames} err {c.Faults}"))),
+            $"{c.Name} {c.ProcessedFps:0.0}fps q{c.QueueLength}/{c.QueueCapacity} peak {c.PeakQueueLength} max {c.MaxProcessingTime.TotalMilliseconds:0}ms drop {c.DroppedFrames} err {c.Faults}"))),
         inspection.OkCount,
         inspection.NgCount,
         save?.ProcessedFrames ?? 0);

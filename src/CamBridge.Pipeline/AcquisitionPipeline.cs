@@ -73,6 +73,7 @@ public sealed partial class AcquisitionPipeline : IAsyncDisposable
         }
 
         _camera.FrameReceived += OnFrameReceived;
+        _camera.ErrorOccurred += OnCameraError;
         _running = true;
     }
 
@@ -88,6 +89,7 @@ public sealed partial class AcquisitionPipeline : IAsyncDisposable
         }
 
         _camera.FrameReceived -= OnFrameReceived;
+        _camera.ErrorOccurred -= OnCameraError;
         _running = false;
 
         await Task.WhenAll(_runners.Select(r => r.StopAsync(drain))).ConfigureAwait(false);
@@ -134,6 +136,25 @@ public sealed partial class AcquisitionPipeline : IAsyncDisposable
 #pragma warning restore CA1031
         {
             LogFrameHandlingFailed(_logger, ex);
+        }
+    }
+
+    private void OnCameraError(object? sender, CameraErrorEventArgs e)
+    {
+        if (e.LostFrameId is not long frameId)
+        {
+            return;
+        }
+
+        lock (_frameIdLock)
+        {
+            // Not above the last frame: the gap before that frame has already counted this one.
+            if (frameId > _lastFrameId)
+            {
+                long firstMissing = _lastFrameId >= 0 ? _lastFrameId + 1 : frameId;
+                Interlocked.Add(ref _cameraDropped, frameId - firstMissing + 1);
+                _lastFrameId = frameId;
+            }
         }
     }
 
