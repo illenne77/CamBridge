@@ -146,7 +146,7 @@ public sealed class Frame : IDisposable
   - .NET 8엔 GAC가 없어 `Basler.Pylon.dll`을 출력에 복사(gitignore 대상). x64 전용 참조의 MSB3270은 SDK 샘플과 같은 방식으로 억제
   - `PylonRuntime`: 설치 전에 시작된 프로세스용으로 `Runtime\x64`를 프로세스 PATH에, 영구 `PYLON_CAMEMU`를 프로세스 환경에 보충
   - 주의: SDK 있음/없음 빌드를 번갈아 하면 App deps.json에 Basler.Pylon이 빠질 수 있음 → `--no-incremental`로 재빌드
-- [ ] 카메라 분리·재연결 등 오류 이벤트 처리 — `ConnectionLost` → `Disconnected` + `Faulted` 구현. 에뮬레이터로는 분리 재현 불가 → **실물 검증 필요**
+- [x] 카메라 분리·재연결 등 오류 이벤트 처리 — `ConnectionLost` → `Disconnected` + `Faulted` 구현. 에뮬레이터로는 분리 재현 불가, 실물 GigE로 검증(2026-10-31, 약 1.5초에 감지, 재연결 복구)
 - 2026-10-27 로컬: 에뮬레이터 테스트 9개 + 순수 로직 11개 통과(전체 Windows 88, Core 98). 앱에서 "Basler pylon" 그룹에 에뮬레이터 2대 표시, 1024x1040 Mono8 수신 95.9fps·드롭 0·검사 96fps, 파라미터 패널(노출 µs·게인 dB·고급 목록) 정상 — 상위 코드 수정 없음
 
 **완료 기준**: 에뮬레이터 카메라로 연속 획득 및 소프트웨어 트리거 촬영 성공
@@ -237,7 +237,7 @@ public sealed class Frame : IDisposable
 
 - [x] README: 기능, 구조 다이어그램, 실행 방법, 확장 방법(새 벤더 추가 절차) — Mermaid 구조도, 설계 원칙별 구현, 30분 측정 결과 포함. 시연 GIF 자리는 비워 둠
 - [x] 에뮬레이터 + 이미지 폴더 기반 시연 GIF — `docs/media/inspection.gif`(판정·ROI 편집), `multivendor.gif`(폴더 → pylon 에뮬레이터 전환, 파라미터). UI Automation 녹화, 768x480 8fps. 웹캠 영상은 사생활 보호를 위해 제외
-- [ ] GitHub 공개
+- [x] GitHub 공개 — PR #1 병합으로 main에 반영(2026-10-31)
 
 **완료 기준**: README만 보고 기능과 구조를 이해할 수 있음
 
@@ -279,7 +279,7 @@ public sealed class Frame : IDisposable
 
 - [x] `set PYLON_CAMEMU=2` 후 열거 확인, 노출·게인·트리거·소프트웨어 트리거 매핑, 이름 기반 파라미터 → pylon 파라미터 맵
 - [x] pylon의 grab 결과 버퍼를 `Frame.Rent` 버퍼로 복사(Core에 SDK 타입 노출 금지). FrameId는 block ID 사용 → 카메라측 드롭 통계에 그대로 반영
-- [ ] 분리·재연결 → `ErrorOccurred(Disconnected)` + `CameraState.Faulted` — 구현 완료, **실물 GigE로 검증 필요**(에뮬레이터는 분리 불가)
+- [x] 분리·재연결 → `ErrorOccurred(Disconnected)` + `CameraState.Faulted` — 구현 완료, 실물 GigE로 검증(2026-10-31, 에뮬레이터는 분리 불가)
 - [x] 실물(acA640-120gm, ace classic GigE) 대비: SFNC 1.x 이름(`ExposureTimeAbs`, `GainRaw`, `AcquisitionFrameRateAbs` 등, 도착 후 pylon Viewer로 확인)과 SFNC 2.x 이름을 노드 존재 여부로 둘 다 매핑. 에뮬레이터만으로는 이 차이가 검증되지 않음
   - 매핑 구현·단위 테스트 완료. 에뮬레이터는 신·구 이름을 모두 제공해 1.x 전용 경로는 **실물 검증 필요**
 - [x] 디버그 빌드용 GigE `HeartbeatTimeout` 연장 옵션(브레이크포인트 정지 시 분리 방지)
