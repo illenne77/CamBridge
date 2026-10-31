@@ -185,6 +185,11 @@ public sealed class PylonRealCameraTests(ITestOutputHelper output) : IAsyncLifet
         await Camera.StartAcquisitionAsync();
         var clock = Stopwatch.StartNew();
         await Task.Delay(TimeSpan.FromSeconds(Seconds));
+        if (Camera.Info.Interface == CameraInterface.GigE)
+        {
+            output.WriteLine($"Packet size {Camera.GetParameter("GevSCPSPacketSize")}");
+        }
+
         WriteTransportStatistics();
         await Camera.StopAcquisitionAsync();
         double fps = ids.Count / clock.Elapsed.TotalSeconds;
@@ -193,6 +198,11 @@ public sealed class PylonRealCameraTests(ITestOutputHelper output) : IAsyncLifet
         long[] frames = ids.ToArray();
         long gaps = frames.Zip(frames.Skip(1)).Sum(pair => pair.Second - pair.First - 1);
         output.WriteLine($"{frames.Length} frames at {fps:0.0} fps, ids {frames.FirstOrDefault()}..{frames.LastOrDefault()}, gaps {gaps}, errors {errors.Count}");
+        foreach ((long before, long after) in frames.Zip(frames.Skip(1)).Where(pair => pair.Second != pair.First + 1).Take(5))
+        {
+            output.WriteLine($"gap after id {before}: {after - before - 1} missing");
+        }
+
         foreach (string error in errors.Take(5))
         {
             output.WriteLine(error);
@@ -208,6 +218,55 @@ public sealed class PylonRealCameraTests(ITestOutputHelper output) : IAsyncLifet
         Assert.Equal(0, gaps);
         Assert.InRange(fps, RequestedFps * 0.9, RequestedFps * 1.1);
         Assert.Equal(0, _pool.Outstanding);
+    }
+
+    [PylonRealCameraFact]
+    public async Task PixelFormatEntries_CanAllBeSet_AndKeepTheCurrentValueWhileAcquiring()
+    {
+        await OpenManualAsync();
+
+        IReadOnlyList<string> entries = Camera.FindParameter(ParameterNames.PixelFormat)!.EnumEntries;
+        output.WriteLine($"Pixel formats: {string.Join(", ", entries)}");
+        Assert.NotEmpty(entries);
+        foreach (string entry in entries)
+        {
+            Camera.SetParameter(ParameterNames.PixelFormat, entry);
+            Assert.Equal(entry, Camera.GetParameter(ParameterNames.PixelFormat));
+        }
+
+        Camera.SetParameter(ParameterNames.PixelFormat, "Mono8");
+        await Camera.StartAcquisitionAsync();
+        IReadOnlyList<string> whileAcquiring = Camera.FindParameter(ParameterNames.PixelFormat)!.EnumEntries;
+        await Camera.StopAcquisitionAsync();
+
+        output.WriteLine($"While acquiring: {string.Join(", ", whileAcquiring)}");
+        Assert.Contains("Mono8", whileAcquiring);
+    }
+
+    [PylonRealCameraFact]
+    public async Task PacketSize_IsNegotiatedAtStart_UnlessSetByName()
+    {
+        const string PacketSize = "GevSCPSPacketSize";
+        const long Small = 576;
+        await OpenManualAsync();
+        if (Camera.Info.Interface != CameraInterface.GigE)
+        {
+            return;
+        }
+
+        Camera.SetParameter(PacketSize, Small);
+        await Camera.StartAcquisitionAsync();
+        Assert.Equal(Small, Camera.GetParameter(PacketSize));
+        await Camera.StopAcquisitionAsync();
+        await Camera.CloseAsync();
+
+        await Camera.OpenAsync();
+        await Camera.StartAcquisitionAsync();
+        long negotiated = (long)Camera.GetParameter(PacketSize);
+        await Camera.StopAcquisitionAsync();
+
+        output.WriteLine($"Negotiated packet size: {negotiated}");
+        Assert.True(negotiated > Small, $"Expected a larger packet than {Small}, got {negotiated}.");
     }
 
     [PylonRealCameraFact]

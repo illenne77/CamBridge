@@ -21,7 +21,7 @@
 - [x] `.gitignore` 기본 설정, `README.md` 초안 (초기 커밋에 포함)
 - [x] [클라우드] `Directory.Build.props`(공통 설정, nullable, 경고 수준, Windows 프로젝트의 `EnableWindowsTargeting`)
 - [x] [클라우드] GitHub Actions: `net8.0` 프로젝트 빌드·테스트 (선택) — `.github/workflows/ci.yml`
-- [x] [로컬] Basler pylon SDK 설치 확인 및 .NET API 참조 경로 확인 (개발자가 설치) — pylon 9.2, `D:\Program Files\Basler\pylon`
+- [x] [로컬] Basler pylon SDK 설치 확인 및 .NET API 참조 경로 확인 (개발자가 설치) — pylon 26.09.2, `D:\Program Files\Basler\pylon`
   - **로컬 검증 필요**: `CamBridge.Sources.Pylon.csproj`의 기본 경로
     `$(PYLON_DEV_DIR)\Assemblies\Basler.Pylon\x64\Basler.Pylon.dll`은 추정값. 실제 설치 경로 확인 후 수정
     (임시로 `dotnet build -p:PylonNetAssembly=<경로>`로 지정 가능). SDK 감지 시 빌드 로그에 `pylon SDK found` 출력, `HAS_PYLON` 상수 정의
@@ -131,7 +131,7 @@ public sealed class Frame : IDisposable
 
 ## 3단계 — pylon 에뮬레이터 연동 (2일)
 
-- [x] `PylonProvider` / `PylonCamera` — Basler pylon .NET API (pylon 9.2, net8.0 x64 API)
+- [x] `PylonProvider` / `PylonCamera` — Basler pylon .NET API (pylon 26.09.2, net8.0 x64 API)
   - 장치 스레드 없음: pylon `Camera`는 자체 동기화. 획득은 `OneByOne` + `ProvidedByStreamGrabber`, `ImageGrabbed`(pylon 스레드)에서 `Frame.Rent`로 1회 복사(PaddingX 반영) 후 `FrameReceived`
   - FrameId = BlockID를 `BlockIdUnwrapper`로 연속화(GigE 1..65535 순환 처리, 0=미지원 시 호스트 카운터). 실패한 grab은 FrameError + BlockID 공백 → 파이프라인 카메라측 드롭으로 집계
   - 픽셀: Mono8, BGR8, RGB8(→BGR), Bayer 8bit(OpenCV 디모자이크 → Bgr8). 그 외는 형식당 1회 FrameError
@@ -307,7 +307,7 @@ public sealed class Frame : IDisposable
 
 ## 카메라 도착 후 (1~2일)
 
-카메라: Basler **acA640-120gm** (GigE Vision, Mono, 659×494, 최대 약 120fps, 라벨로 모델 확인. 해상도·속도는 연결 후 확인). Mono8 기준 약 39MB/s로 1GbE에 여유 있음. 전원은 PoE(802.3af) 또는 I/O 커넥터 12V 중 하나만(동시 공급 금지).
+카메라: Basler **acA640-120gm** (GigE Vision, Mono, 센서 659×494, 라벨과 연결로 모델 확인). Mono8 기준 약 39MB/s로 1GbE에 여유 있음. 이 카메라는 전원을 켜면 기본 사용자 설정(`UserSetDefaultSelector = UserSet1`)의 값으로 시작: 640×480, 노출 450 µs, 게인 300, 패킷 576바이트, 프레임 레이트 제한 꺼짐, 자유 실행 약 127fps. 고정 IP와 함께 이전 사용 설정으로 보임. 저장값은 바꾸지 않았고, 아래 검증은 모두 640×480 기준. 전원은 PoE(802.3af) 또는 I/O 커넥터 12V 중 하나만(동시 공급 금지).
 
 랜카드: **NEXT-POE3101EX** (Intel WGI210AT, PCIe v2.0 x1, RJ-45 1포트, PoE+ 최대 30W). 인터넷용 어댑터와 분리된 카메라 전용. 표준 802.3af/at 여부와 보조 전원 단자는 판매 페이지에서 확인되지 않아 설치 때 실물로 확인. 케이블: Cat5e, 카드와 카메라 직결.
 
@@ -317,7 +317,7 @@ public sealed class Frame : IDisposable
 
 직접 진행:
 
-1. PC 전원을 끄고 카드 장착. 보조 전원 단자가 있으면 연결. 부팅 후 장치 관리자에서 I210 인식 확인.
+1. PC 전원을 끄고 카드 장착. 보조 전원 단자가 있으면 연결. 부팅 후 장치 관리자에서 I210 인식 확인. 이 PC(ASUS EX-B660M-V5 D4)는 BIOS 0419에서 카드를 꽂으면 로고 화면에서 멈췄고, BIOS 4004로 올린 뒤 정상 부팅(BIOS 설정도 함께 바꿨는지는 미확인).
 2. 점검: `powershell -ExecutionPolicy Bypass -File tools\camera-nic.ps1` — 어댑터 목록과 현재 설정 표시, 변경 없음.
 3. 설정: **관리자 PowerShell**에서 같은 명령에 `-Apply`. 점보 프레임 9014, 수신 버퍼 최대, 고정 IP 192.168.10.1/24(게이트웨이 없음), 이 인터페이스 한정 UDP 방화벽 규칙. 게이트웨이가 있는 어댑터(인터넷용)는 거부. `-WhatIf`로 미리 보기 가능.
 4. 렌즈를 끼우고 카메라 연결. 카드 LED: **파랑(PoE 공급) + 노랑(1000M)** 확인. 2번 명령으로 Link Up, 1 Gbps 재확인.
@@ -332,17 +332,31 @@ public sealed class Frame : IDisposable
 | 노란 LED 꺼짐(100M) | 케이블 교체 |
 | IP Configurator에 안 보임 | 어댑터 Link Up 여부, 방화벽 규칙, pylon GigE 드라이버 바인딩(2번 명령) |
 | 보이는데 "not reachable" | 카메라 IP를 어댑터와 같은 서브넷으로 설정 |
-| 영상이 끊기거나 재전송이 늘어남 | 패킷 크기(`GevSCPSPacketSize`) 8192, 점보 프레임, 케이블, Performance 드라이버 |
+| 영상이 끊기거나 재전송이 늘어남 | 패킷 크기(시작 시 자동 협상, 고정하려면 `--set GevSCPSPacketSize=8192`), 점보 프레임, 케이블, Performance 드라이버 |
+| pylon 검색 0대인데 GVCP 응답은 옴 | 카메라 IP가 다른 서브넷. 이 카메라는 처음에 192.128.0.10이었음 |
+| 재연결 후 화면이 검게 나옴 | PoE 재시작으로 카메라가 저장값으로 돌아감(이 카메라는 노출 450 µs). 노출을 다시 설정 |
 
 Claude와 함께 진행(앱·도구 쪽 준비 완료, 실행은 카메라 필요):
 
-- [ ] 실물 검증 테스트: `dotnet test tests/CamBridge.Tests.Windows --filter "FullyQualifiedName~PylonRealCamera" --logger "console;verbosity=detailed"` — 어떤 노드가 쓰였는지(SFNC 1.x `ExposureTimeAbs`, `GainRaw`), GigE BlockID, 100fps 5초 공백·오류 0, 트리거, 전송 통계. **acA640-120gm이 pylon 9.2에서 정상 인식되는지도 여기서 확인**
-- [ ] 앱 확인: "Basler pylon" 그룹에 표시, 연결·라이브뷰·파라미터 패널·검사
-- [ ] 분리 감지: 획득 중 랜선 분리 → 상태 "오류", 로그 `Disconnected`(하트비트 1초, 디버거 없이 실행), 다시 꽂고 연결 해제 → 연결로 복구
-- [ ] 장시간 실행: `dotnet run -c Release --project tools/CamBridge.Soak -- --minutes 30 --set GevSCPSPacketSize=8192` — 120fps면 BlockID가 약 9분마다 65535에서 순환하므로 30분에 3회 지나감. 드롭 0이어야 FrameId 연속화 검증도 끝남. 빌드 직후 첫 실행은 제외(인계 체크리스트 D 참고)
+- [x] 실물 검증 테스트: `dotnet test tests/CamBridge.Tests.Windows --filter "FullyQualifiedName~PylonRealCamera" --logger "console;verbosity=detailed"` — 8개 통과(2026-10-31, pylon 26.09.2). SFNC 1.x 노드(`ExposureTimeAbs`, `GainRaw`, `AcquisitionFrameRateAbs`), BlockID 1부터, 소프트웨어·하드웨어 트리거 입력 대기, 전송 통계 확인. 하드웨어 트리거는 입력 없이 프레임이 나오지 않는 것까지만 확인(실제 신호 미입력)
+  - FreeRun(100fps 5초)은 22회 중 첫 실행 1회만 실패: 버퍼 언더런 10, 패킷 손실·재전송 0. 드롭 위치 기록 추가 전이라 어디서 끊겼는지 모름. 같은 패킷 크기 576으로 8회 반복은 모두 통과. **원인 미확인**
+- [x] 앱 확인: "Basler pylon" 그룹에 표시, 연결·라이브뷰·파라미터 패널 동작. 연속 21분 33초, 127fps, 164,272프레임, 드롭 0(카메라측 0), BlockID 65535 순환 2회 통과. 노출 변경이 영상 밝기에 반영되고 초점을 맞춘 영상에서 글자가 읽힘. 샘플 레시피는 실물 영상과 맞지 않아 전부 NG이며, 실제 대상물 검사는 미확인
+- [x] 분리 감지: 획득 중 랜선 분리 → 첫 불완전 프레임 경고 후 약 1.5초에 `Disconnected` → 상태 "오류"(하트비트 1초, Windows 링크 Down 기록보다 0.4초 빠름). 다시 꽂으면 링크가 한 번 더 끊겼다 복구되고(PoE 재시작으로 추정) 저장한 IP 유지. 연결 해제 → 연결 → 시작으로 복구
+  - 재연결 10회 반복: private 432~444 MB, 핸들 약 800에서 증가 없음. 첫 재연결에서 390 → 418 MB로 한 번 늘고 유지
+- 실물에서 발견해 수정:
+  - 패킷 크기: 전원 투입 시 576바이트(프레임당 571패킷). `PylonOptions.AutoPacketSize`(기본 켬)로 시작 때 협상해 9000바이트, 프레임당 37패킷. `GevSCPSPacketSize`를 이름으로 지정하면 다시 열 때까지 협상을 끔. 점보 프레임이 없는 NIC에서는 미확인
+  - 픽셀 포맷 목록: `GetAllValues`는 이 모델에 없는 값(Bayer, Mono10)도 돌려줌. 설정 가능한 값(Mono8, Mono12, Mono12Packed, YUV422Packed, YUV422_YUYV_Packed)만 표시하고, 획득 중에는 현재 값만 표시. Mono8 외 형식은 선택 시 "지원하지 않음" 오류를 1회 보고
+  - `camera-nic.ps1 -Apply`: `New-NetIPAddress`가 활성 저장소에만 적용하고 영구 저장소에서 실패 → `netsh`로 교체, 부팅 시 읽는 값 검증 추가, 이미 맞는 고급 속성은 건너뜀(어댑터 재시작 방지)
+- 미해결: `WebcamCameraDeviceTests.ManualExposure`가 2026-10-31 오후에 5회 연속 실패, 약 1시간 반 뒤 전체 테스트에서는 통과. 실패 때는 노출값이 적용으로 나오지만 최소·최대 모두 평균 밝기 약 148. 웹캠 코드 변경 없음, 나머지 웹캠 테스트 8개는 계속 통과. 간헐 실패로 보이며 **원인 미확인**
+- [ ] 장시간 실행: `dotnet run -c Release --project tools/CamBridge.Soak -- --minutes 30` — 2026-10-31 실행(640×480 Mono8, 120fps) **도구 판정 FAIL**, 사유는 저장 큐 드롭
+  - 획득 구간: 수신 216,162프레임, 카메라측 드롭 0, 실패 버퍼·언더런·패킷 손실·재전송 0, 카메라 오류 0. BlockID 65535 순환 3회 통과로 FrameId 연속화 확인
+  - 메모리(6~30분 기울기, 전부 기준 이내): private +0.029 MB/min, 관리 힙 +0.050 MB/min, 핸들 -0.092/min, 스레드 -0.015/min. 이 구간 대여 버퍼 최대 1, 정지 후 0
+  - FAIL 사유: 28분 11초 샘플에서 처음 잡힌 저장 큐 드롭 2(이후 증가 없음). 검사 큐 드롭 0. **원인 미확인**. 저장 큐는 용량 4(120fps에서 약 33ms)이고 1/100만 저장하면서도 모든 프레임을 받으므로, 저장 대상이 아닌 프레임도 드롭으로 집계됨
+  - 1분 시운전: 빌드 직후 첫 실행은 소비자 드롭 64(검사 54, 저장 10, 카메라측 0), 빌드 없이 바로 재실행하면 0. 원인 미증명
+  - 2분 20초에 초점 조정 때문에 중단한 실행(드롭 0)은 판정에서 제외. 초점을 맞춘 뒤 처음부터 다시 실행한 결과가 위 수치
 - [x] 도착 전 준비: NIC 점검·설정 스크립트(`tools/camera-nic.ps1`), 실물 검증 테스트, Soak 도구의 실물 카메라 지원, 연결 체크리스트
-  - 실제 하드웨어 없이 확인한 범위: 스크립트의 점검 경로와 거부 경로(인터넷 어댑터, I210 없음)만 실행 확인. **`-Apply`의 변경 동작은 카드가 있어야 처음 실행됨**. 실물 테스트 코드는 에뮬레이터를 실물로 간주해 일시 실행해 통과 확인(되돌림)
-- [ ] 실물 카메라 구현 연결 (Basler면 기존 `PylonCamera` 그대로, HIKROBOT이면 `Sources.Hik` 추가)
-- [ ] block ID 기반 카메라측 드롭(패킷 손실·재전송) 통계를 실물로 시연 — 웹캠에서는 측정 불가했던 항목. 파라미터 목록과 Soak 요약에 `Statistic_*`(전송 패킷·재전송·실패 버퍼) 노출 완료
-- [ ] 조명·렌즈 세팅, 실물 촬영 시연 영상 제작
+  - 카드 도착 전에는 스크립트의 점검 경로와 거부 경로(인터넷 어댑터, I210 없음)만 실행 확인. `-Apply`는 카드 장착 후 실제 적용 확인(2026-10-31). 실물 테스트 코드는 에뮬레이터를 실물로 간주해 일시 실행해 통과 확인(되돌림)
+- [x] 실물 카메라 구현 연결: 기존 `PylonCamera`로 연결, Core·상위 계층 변경 없음
+- [ ] block ID 기반 카메라측 드롭(패킷 손실·재전송) 통계를 실물로 시연 — 웹캠에서는 측정 불가했던 항목. 파라미터 목록과 Soak 요약에 `Statistic_*`(전송 패킷·재전송·실패 버퍼) 노출 완료. 30분 실행의 카운터는 전부 0이었고, 실제 손실을 일으켜 잡히는지는 아직 시연하지 않음
+- [ ] 조명·렌즈 세팅, 실물 촬영 시연 영상 제작 — 렌즈 초점 확인 완료(2026-10-31), 조명과 영상 제작은 남음
 - [ ] README·크몽 서비스 페이지에 실물 시연 반영

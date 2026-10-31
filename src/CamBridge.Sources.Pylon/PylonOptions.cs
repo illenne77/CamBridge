@@ -16,6 +16,13 @@ public sealed record PylonOptions
     public int BufferCount { get; init; } = 16;
 
     /// <summary>
+    /// Negotiates the largest packet size the network path carries each time a GigE stream starts.
+    /// Otherwise the camera keeps its stored size, which can be far from what this NIC allows.
+    /// Setting GevSCPSPacketSize by name turns negotiation off until the camera is opened again.
+    /// </summary>
+    public bool AutoPacketSize { get; init; } = true;
+
+    /// <summary>
     /// GigE heartbeat timeout applied at open, so an unplugged camera is noticed quickly. Null keeps
     /// the camera default. Not applied under a debugger, where pylon raises it to 5 minutes itself
     /// so breakpoints do not drop the connection.

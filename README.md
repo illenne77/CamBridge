@@ -98,10 +98,12 @@ pylon 카메라 에뮬레이터 30분 장시간 실행 (`tools/CamBridge.Soak`, 
 
 앱에서: pylon 에뮬레이터 1024×1040 수신 약 96 fps·드롭 0, 샘플 폴더 검사 30 fps·검사 1회 0.3~0.4 ms, 웹캠 640×480 30 fps.
 
+실물 카메라 결과는 아래 [현재 상태](#현재-상태)에 있습니다.
+
 ## 요구 사항
 
 - Windows 10/11, .NET 8 SDK
-- Basler 카메라 사용 시: [Basler pylon Camera Software Suite](https://www.baslerweb.com/) (pylon 9.2에서 확인). 이 저장소에는 SDK 파일을 포함하지 않습니다.
+- Basler 카메라 사용 시: [Basler pylon Camera Software Suite](https://www.baslerweb.com/) (pylon 26.09.2에서 확인). 이 저장소에는 SDK 파일을 포함하지 않습니다.
 - 웹캠 사용 시: UVC 웹캠 (DirectShow)
 
 ## 빌드와 실행
@@ -151,6 +153,8 @@ dotnet run -c Release --project tools/CamBridge.Soak -- --minutes 30   # 장시�
 ## 현재 상태
 
 - 웹캠, 이미지 폴더, pylon 에뮬레이터로 획득·검사·UI 전체 흐름을 구현하고 검증했습니다.
-- 실물 Basler GigE 카메라(acA640-120gm)로 확인할 항목: 분리·재연결, SFNC 1.x 전용 노드 이름, GigE 전송 손실 통계. 검증 테스트(`PylonRealCamera`)와 NIC 설정 스크립트(`tools/camera-nic.ps1`)는 준비되어 있습니다.
+- 실물 Basler GigE 카메라(acA640-120gm, pylon 26.09.2)로 연결, SFNC 1.x 노드 이름, 파라미터 제어, 케이블 분리 감지(약 1.5초)와 재연결을 확인했습니다. 검증 테스트는 `PylonRealCamera`, NIC 설정 스크립트는 `tools/camera-nic.ps1`입니다.
+- 실물 30분 실행(640×480 Mono8, 120fps): 216,162프레임을 수신했고 카메라측 드롭, 패킷 손실, 재전송은 0이며 메모리 증가는 없었습니다. 다만 저장 큐에서 2프레임이 드롭되어 도구 판정은 FAIL입니다. 획득과 검사 큐에는 드롭이 없었고, 저장 큐 드롭의 원인은 아직 확인하지 못했습니다.
+- 남은 일: 실제 대상물과 조명으로 검사 시연, 실물 시연 영상.
 
 작업 계획과 진행 상황은 [docs/PLAN.md](docs/PLAN.md)를 참고하세요.

@@ -12,7 +12,7 @@
     Override the assembly location with:
       dotnet build -p:PylonNetAssembly="<path>\Basler.Pylon.dll"
 
-    Default verified against pylon 9.2 (2026-10-27): the net8.0 build of the .NET API ships as
+    Default verified against pylon 26.09.2 (2026-10-27): the net8.0 build of the .NET API ships as
     $(PYLON_DEV_DIR)\Assemblies\Basler.Pylon\net8.0\x64\Basler.Pylon.dll, the same path the
     SDK's own net8.0 samples reference.
   -->

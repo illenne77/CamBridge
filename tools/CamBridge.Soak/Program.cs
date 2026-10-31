@@ -14,8 +14,8 @@ using CamBridge.Sources.Pylon;
 //       [--emulator | --serial <S/N>] [--fps 120] [--exposure 1000] [--width 640] [--height 480]
 //       [--set GevSCPSPacketSize=8192,Name=Value] [--save-every 100] [--interval 10] [--out <dir>] [--keep-images]
 // pylon uses the first real camera, or the given serial; --emulator uses an emulated one instead
-// (PYLON_CAMEMU is set to 2 for this process when missing). Width and height default to the full
-// sensor on a real camera and to 640x480 on the emulator.
+// (PYLON_CAMEMU is set to 2 for this process when missing). Width and height default to the camera's
+// current size on a real camera and to 640x480 on the emulator.
 Dictionary<string, string> options = ParseArgs(args);
 string source = options.GetValueOrDefault("source", "pylon");
 TimeSpan duration = TimeSpan.FromMinutes(Number("minutes", 30));

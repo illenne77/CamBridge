@@ -46,6 +46,29 @@ function Get-RegistryNumber($Property) {
     return [int](@($Property.RegistryValue)[0])
 }
 
+function Wait-AdapterReady([string]$Name) {
+    # Changing an advanced property restarts the adapter; its IP interface is gone for a few seconds.
+    for ($i = 0; $i -lt 30; $i++) {
+        Start-Sleep -Seconds 1
+        $adapter = Get-NetAdapter -Name $Name -ErrorAction SilentlyContinue
+        $ipInterface = Get-NetIPInterface -InterfaceAlias $Name -AddressFamily IPv4 -ErrorAction SilentlyContinue
+        if ($adapter -and $ipInterface -and $adapter.Status -ne 'Disabled') {
+            return
+        }
+    }
+
+    throw "Adapter '$Name' did not come back within 30 seconds."
+}
+
+function Get-PersistedIp([string]$Name) {
+    # The registry is what Windows loads at boot, so it shows whether the address survives a restart.
+    # An interface without a stored address holds an empty string here, not an empty list.
+    $guid = (Get-NetAdapter -Name $Name).InterfaceGuid
+    $settings = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$guid" -ErrorAction SilentlyContinue
+    if (-not $settings -or $settings.EnableDHCP -ne 0) { return }
+    $settings.IPAddress | Where-Object { $_ }
+}
+
 function Show-Adapter([string]$Name) {
     $adapter = Get-NetAdapter -Name $Name
     Write-Output ''
@@ -68,6 +91,8 @@ function Show-Adapter([string]$Name) {
     $addresses = @($ip.IPv4Address | ForEach-Object { "$($_.IPAddress)/$($_.PrefixLength)" }) -join ', '
     $dhcp = (Get-NetIPInterface -InterfaceAlias $Name -AddressFamily IPv4).Dhcp
     Write-Check ($dhcp -eq 'Disabled') "IPv4: $addresses (DHCP $dhcp; static expected)"
+    $persisted = @(Get-PersistedIp $Name)
+    Write-Check ($persisted.Count -gt 0) "Stored for the next boot: $(if ($persisted) { $persisted -join ', ' } else { 'nothing, the address is lost on restart' })"
     Write-Check ($null -eq $ip.IPv4DefaultGateway) "Gateway: $(if ($ip.IPv4DefaultGateway) { $ip.IPv4DefaultGateway.NextHop } else { 'none' }) (none expected)"
 
     $pylon = @(Get-NetAdapterBinding -Name $Name -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match 'pylon|Basler' })
@@ -119,19 +144,26 @@ if ($Apply) {
         exit 1
     }
 
-    if ($PSCmdlet.ShouldProcess($AdapterName, "Set jumbo frames to $JumboPacket")) {
+    # Writing an advanced property restarts the adapter, so skip values that are already set.
+    if ((Get-RegistryNumber (Get-AdvancedProperty $AdapterName '*JumboPacket')) -ne $JumboPacket -and $PSCmdlet.ShouldProcess($AdapterName, "Set jumbo frames to $JumboPacket")) {
         Set-NetAdapterAdvancedProperty -Name $AdapterName -RegistryKeyword '*JumboPacket' -RegistryValue $JumboPacket
     }
 
     $buffers = Get-AdvancedProperty $AdapterName '*ReceiveBuffers'
-    if ($buffers -and $PSCmdlet.ShouldProcess($AdapterName, "Set receive buffers to $($buffers.NumericParameterMaxValue)")) {
+    if ($buffers -and (Get-RegistryNumber $buffers) -lt [int]$buffers.NumericParameterMaxValue -and $PSCmdlet.ShouldProcess($AdapterName, "Set receive buffers to $($buffers.NumericParameterMaxValue)")) {
         Set-NetAdapterAdvancedProperty -Name $AdapterName -RegistryKeyword '*ReceiveBuffers' -RegistryValue ([string]$buffers.NumericParameterMaxValue)
     }
 
     if ($PSCmdlet.ShouldProcess($AdapterName, "Set static IPv4 $HostIp/$PrefixLength without a gateway")) {
-        Set-NetIPInterface -InterfaceAlias $AdapterName -AddressFamily IPv4 -Dhcp Disabled
-        Get-NetIPAddress -InterfaceAlias $AdapterName -AddressFamily IPv4 -ErrorAction SilentlyContinue | Remove-NetIPAddress -Confirm:$false
-        New-NetIPAddress -InterfaceAlias $AdapterName -IPAddress $HostIp -PrefixLength $PrefixLength | Out-Null
+        Wait-AdapterReady $AdapterName
+        # New-NetIPAddress left the address in the active store only and failed on the persistent one
+        # ("Inconsistent parameters PolicyStore PersistentStore and Dhcp Enabled"). netsh does both in one step.
+        Get-NetIPAddress -InterfaceAlias $AdapterName -AddressFamily IPv4 -ErrorAction SilentlyContinue | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+        $index = (Get-NetAdapter -Name $AdapterName).ifIndex
+        $netshOutput = & netsh interface ipv4 set address "name=$index" source=static "address=$HostIp/$PrefixLength" gateway=none store=persistent
+        if (@(Get-PersistedIp $AdapterName) -notcontains $HostIp) {
+            throw "Could not store $HostIp on '$AdapterName'. netsh said: $netshOutput"
+        }
     }
 
     if ($PSCmdlet.ShouldProcess($AdapterName, "Add inbound UDP firewall rule '$FirewallRuleName' for this interface")) {

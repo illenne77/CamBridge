@@ -31,6 +31,8 @@ namespace CamBridge.Sources.Pylon;
 /// </remarks>
 internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : ICamera
 {
+    private const string PacketSizeNode = "GevSCPSPacketSize";
+
     private static readonly HashSet<string> OwnNames = new(StringComparer.Ordinal)
     {
         ParameterNames.TriggerMode, ParameterNames.TriggerSoftware,
@@ -377,7 +379,7 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
                 string entry = Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
                 if (!e.CanSetValue(entry))
                 {
-                    throw new ArgumentException($"'{entry}' is not a valid {name}; use one of {string.Join(", ", e.GetAllValues())}.", nameof(value));
+                    throw new ArgumentException($"'{entry}' is not a valid {name}; use one of {string.Join(", ", e)}.", nameof(value));
                 }
 
                 e.SetValue(entry);
@@ -393,6 +395,12 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
 
             default:
                 throw new InvalidOperationException($"{name} cannot be set (node type {node.GetType().Name}).");
+        }
+
+        if (name == PacketSizeNode)
+        {
+            // Negotiation at the next start would replace a size chosen by hand.
+            camera.Parameters[PLStream.AutoPacketSize].TrySetValue(false);
         }
     }
 
@@ -445,6 +453,11 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
             if (!IsSupportedPixelFormat(pixelFormat.GetValueOrDefault(string.Empty)))
             {
                 pixelFormat.TrySetValue(PLCamera.PixelFormat.Mono8);
+            }
+
+            if (_isGigE)
+            {
+                camera.Parameters[PLStream.AutoPacketSize].TrySetValue(options.AutoPacketSize);
             }
 
             if (_isGigE && options.HeartbeatTimeout is TimeSpan heartbeat && !Debugger.IsAttached)
@@ -710,7 +723,9 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
                 break;
             case IEnumParameter e:
                 type = ParameterType.Enumeration;
-                entries = readable ? e.GetAllValues().ToList() : [];
+                // Enumerating yields the settable values; GetAllValues also has entries this model lacks.
+                // Nothing is settable while the node is locked (e.g. during acquisition), so show the current one.
+                entries = !readable ? [] : node.IsWritable ? e.ToList() : [e.GetValue()];
                 break;
             case IBooleanParameter:
                 type = ParameterType.Boolean;
