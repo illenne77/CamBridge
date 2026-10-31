@@ -32,7 +32,8 @@ public sealed class ImageFolderCameraTests : IAsyncDisposable
         for (int i = 0; i < count; i++)
         {
             using var image = new Mat(height, width, color ? MatType.CV_8UC3 : MatType.CV_8UC1, Scalar.All((i + 1) * 10));
-            Cv2.ImWrite(Path.Combine(folder, $"img{i:D2}.png"), image);
+            Cv2.ImEncode(".png", image, out byte[] png); // Cv2.ImWrite cannot reach every path the tests use
+            File.WriteAllBytes(Path.Combine(folder, $"img{i:D2}.png"), png);
         }
 
         return folder;
@@ -89,6 +90,66 @@ public sealed class ImageFolderCameraTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AddFolder_KeepsItThroughEnumerationAndCreatesIt()
+    {
+        string folder = Folder("added");
+        var provider = new ImageFolderProvider([]);
+
+        CameraInfo added = provider.AddFolder(folder);
+
+        CameraInfo enumerated = Assert.Single(await provider.EnumerateAsync());
+        Assert.Equal(added, enumerated);
+        Assert.Equal(Path.GetFullPath(folder), added.DeviceId);
+        await using ICamera camera = provider.Create(added);
+        await camera.OpenAsync();
+        Assert.Equal(CameraState.Open, camera.State);
+    }
+
+    [Fact]
+    public async Task AddFolder_KnownFolder_KeepsOneEntry()
+    {
+        string folder = Folder("known");
+        var provider = new ImageFolderProvider([folder]);
+
+        CameraInfo sameCase = provider.AddFolder(folder);
+        CameraInfo trailingSeparator = provider.AddFolder(folder + Path.DirectorySeparatorChar);
+
+        CameraInfo enumerated = Assert.Single(await provider.EnumerateAsync());
+        Assert.Equal(enumerated, sameCase);
+        Assert.Equal(enumerated, trailingSeparator);
+        if (OperatingSystem.IsWindows()) // the other spelling only exists on a case-insensitive file system
+        {
+            Assert.Equal(enumerated, provider.AddFolder(folder.Replace("known", "KNOWN", StringComparison.Ordinal)));
+            Assert.Single(await provider.EnumerateAsync());
+        }
+    }
+
+    [Fact]
+    public async Task AddFolder_CannotPlay_ThrowsAndAddsNothing()
+    {
+        string empty = Path.Combine(_root, "empty");
+        Directory.CreateDirectory(empty);
+        File.WriteAllText(Path.Combine(empty, "notes.txt"), "not an image");
+        var provider = new ImageFolderProvider([]);
+
+        Assert.Throws<InvalidDataException>(() => provider.AddFolder(empty));
+        Assert.Throws<DirectoryNotFoundException>(() => provider.AddFolder(Path.Combine(_root, "missing")));
+
+        Assert.Empty(await provider.EnumerateAsync());
+    }
+
+    [Fact]
+    public void CreateInfo_DriveRoot_IsNamedByItsPath()
+    {
+        string root = Path.GetPathRoot(_root)!;
+
+        CameraInfo info = ImageFolderProvider.CreateInfo(root);
+
+        Assert.Equal(root, info.DeviceId);
+        Assert.Equal(root, info.UserDefinedName);
+    }
+
+    [Fact]
     public async Task Open_LoadsImagesAndReportsGeometry()
     {
         ImageFolderCamera camera = Camera(Folder(width: 20, height: 10));
@@ -129,6 +190,33 @@ public sealed class ImageFolderCameraTests : IAsyncDisposable
         InvalidDataException error = await Assert.ThrowsAsync<InvalidDataException>(() => camera.OpenAsync());
         Assert.Contains("img99.png", error.Message, StringComparison.Ordinal);
         Assert.Equal(CameraState.Closed, camera.State);
+    }
+
+    [Theory]
+    [InlineData("한글")]
+    [InlineData("tiếng-việt")] // outside CP949
+    [InlineData("emoji-😀")] // outside every ANSI code page
+    public async Task Open_FolderNameInAnyScript_LoadsImages(string name)
+    {
+        ImageFolderCamera camera = Camera(Folder(name));
+
+        await camera.OpenAsync();
+
+        Assert.Equal(3, camera.ImageCount);
+    }
+
+    [Theory]
+    [InlineData(new byte[0])]
+    [InlineData(new byte[] { 1, 2, 3, 4 })]
+    public async Task Open_UndecodableFile_ThrowsNamingIt(byte[] content)
+    {
+        string folder = Folder(count: 1);
+        File.WriteAllBytes(Path.Combine(folder, "img99.png"), content);
+        ImageFolderCamera camera = Camera(folder);
+
+        InvalidDataException error = await Assert.ThrowsAsync<InvalidDataException>(() => camera.OpenAsync());
+
+        Assert.Contains("img99.png", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

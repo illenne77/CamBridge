@@ -11,6 +11,7 @@ using CamBridge.Pipeline.Statistics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using Microsoft.Win32;
 
 namespace CamBridge.App.ViewModels;
 
@@ -31,6 +32,7 @@ public sealed partial class MainViewModel : ObservableObject
     private static readonly TimeSpan StatisticsInterval = TimeSpan.FromMilliseconds(250);
 
     private readonly CameraRegistry _registry;
+    private readonly Func<string, CameraInfo> _addImageFolder;
     private readonly ILoggerFactory _loggerFactory;
     private readonly MemoryLogProvider _memoryLog;
     private readonly ILogger _logger;
@@ -53,7 +55,7 @@ public sealed partial class MainViewModel : ObservableObject
     private CameraState _state = CameraState.Closed;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(DisconnectCommand), nameof(StartCommand), nameof(StopCommand), nameof(RefreshCamerasCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(DisconnectCommand), nameof(StartCommand), nameof(StopCommand), nameof(RefreshCamerasCommand), nameof(AddImageFolderCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -77,18 +79,25 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string? _enumerationMessage;
 
-    public MainViewModel(CameraRegistry registry, ILoggerFactory loggerFactory, MemoryLogProvider memoryLog, string? recipePath = null)
+    /// <param name="addImageFolder">
+    /// Registers a folder as a virtual camera, so this class needs no concrete camera source.
+    /// </param>
+    /// <param name="sampleRecipePath">Bundled demo recipe to start with; see <see cref="InspectionViewModel"/>.</param>
+    public MainViewModel(
+        CameraRegistry registry, ILoggerFactory loggerFactory, MemoryLogProvider memoryLog, Func<string, CameraInfo> addImageFolder, string? sampleRecipePath = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(loggerFactory);
         ArgumentNullException.ThrowIfNull(memoryLog);
+        ArgumentNullException.ThrowIfNull(addImageFolder);
 
         _registry = registry;
+        _addImageFolder = addImageFolder;
         _loggerFactory = loggerFactory;
         _memoryLog = memoryLog;
         _logger = loggerFactory.CreateLogger<MainViewModel>();
         Parameters = new ParametersViewModel(loggerFactory.CreateLogger<ParametersViewModel>());
-        Inspection = new InspectionViewModel(loggerFactory.CreateLogger<InspectionViewModel>(), recipePath);
+        Inspection = new InspectionViewModel(loggerFactory.CreateLogger<InspectionViewModel>(), sampleRecipePath);
         _dispatcher = Dispatcher.CurrentDispatcher;
         _timer = new DispatcherTimer(StatisticsInterval, DispatcherPriority.Background, (_, _) => OnTick(), _dispatcher);
         _timer.Start();
@@ -126,8 +135,7 @@ public sealed partial class MainViewModel : ObservableObject
             Cameras.Clear();
             foreach (CameraInfo info in result.Cameras)
             {
-                string vendor = _registry.Providers.First(p => string.Equals(p.ProviderId, info.ProviderId, StringComparison.OrdinalIgnoreCase)).VendorName;
-                Cameras.Add(new CameraItem(info, vendor));
+                Cameras.Add(ToItem(info));
             }
 
             SelectedCamera = Cameras.FirstOrDefault(c => c.Info.DeviceId == previous) ?? Cameras.FirstOrDefault();
@@ -143,6 +151,35 @@ public sealed partial class MainViewModel : ObservableObject
         {
             IsBusy = false;
         }
+    }
+
+    /// <summary>
+    /// Adds a folder to the list without enumerating again: GigE discovery can take seconds, and
+    /// nothing else changed. Connecting stays a separate step because it decodes the whole folder.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRefresh))]
+    private async Task AddImageFolderAsync()
+    {
+        var dialog = new OpenFolderDialog { Title = "이미지 폴더 선택" };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        string folder = dialog.FolderName;
+        await RunAsync("이미지 폴더 추가 실패", async () =>
+        {
+            CameraInfo info = await Task.Run(() => _addImageFolder(folder)); // a network path can stall
+            CameraItem? item = Cameras.FirstOrDefault(c => c.Info == info);
+            if (item is null)
+            {
+                item = ToItem(info);
+                Cameras.Add(item);
+            }
+
+            SelectedCamera = item;
+            Inspection.WorkingFolder = folder;
+        });
     }
 
     [RelayCommand(CanExecute = nameof(CanConnect))]
@@ -192,6 +229,9 @@ public sealed partial class MainViewModel : ObservableObject
         Parameters.Dispose();
         Inspection.Dispose();
     }
+
+    private CameraItem ToItem(CameraInfo info) => new(
+        info, _registry.Providers.First(p => string.Equals(p.ProviderId, info.ProviderId, StringComparison.OrdinalIgnoreCase)).VendorName);
 
     private bool CanRefresh() => !IsBusy;
 

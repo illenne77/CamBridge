@@ -37,8 +37,10 @@ public partial class App : Application
         _logger = _loggerFactory.CreateLogger<App>();
         DispatcherUnhandledException += OnDispatcherUnhandledException;
 
-        var registry = new CameraRegistry(CreateProviders());
-        var viewModel = new MainViewModel(registry, _loggerFactory, memoryLog, FindUpwards(SampleRecipe));
+        string? samples = FindUpwards(SampleImagesFolder);
+        var imageFolders = new ImageFolderProvider(samples is null ? [] : [samples]);
+        var registry = new CameraRegistry(CreateProviders(imageFolders));
+        var viewModel = new MainViewModel(registry, _loggerFactory, memoryLog, imageFolders.AddFolder, FindUpwards(SampleRecipe));
         var window = new MainWindow(viewModel);
         MainWindow = window;
         window.Show();
@@ -53,12 +55,11 @@ public partial class App : Application
         base.OnExit(e);
     }
 
-    private List<ICameraProvider> CreateProviders()
+    private List<ICameraProvider> CreateProviders(ImageFolderProvider imageFolders)
     {
-        string? samples = FindUpwards(SampleImagesFolder);
         List<ICameraProvider> providers =
         [
-            new ImageFolderProvider(samples is null ? [] : [samples]),
+            imageFolders,
             new WebcamProvider(),
         ];
 

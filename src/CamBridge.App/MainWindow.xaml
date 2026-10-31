@@ -79,6 +79,7 @@
                     <TextBlock Text="{Binding ConnectedCameraName, StringFormat=연결: {0}}" TextWrapping="Wrap" Margin="0,0,0,6" />
                     <WrapPanel>
                         <Button Content="새로고침" Command="{Binding RefreshCamerasCommand}" />
+                        <Button Content="폴더 추가" Command="{Binding AddImageFolderCommand}" />
                         <Button Content="연결" Command="{Binding ConnectCommand}" />
                         <Button Content="연결 해제" Command="{Binding DisconnectCommand}" />
                     </WrapPanel>
@@ -92,6 +93,12 @@
 
                 <ListBox ItemsSource="{Binding Source={StaticResource GroupedCameras}}"
                          SelectedItem="{Binding SelectedCamera}" DisplayMemberPath="DisplayName" Margin="0,0,0,8">
+                    <!-- Folders can share a name (the sample one is just "images"). -->
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="ToolTip" Value="{Binding Info.DeviceId}" />
+                        </Style>
+                    </ListBox.ItemContainerStyle>
                     <ListBox.GroupStyle>
                         <GroupStyle>
                             <GroupStyle.HeaderTemplate>
