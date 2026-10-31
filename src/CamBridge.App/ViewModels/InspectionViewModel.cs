@@ -36,6 +36,7 @@ public sealed partial class InspectionViewModel : ObservableObject, IInspectionO
     private readonly ILogger _logger;
     private readonly DispatcherTimer _timer;
     private readonly CoalescingApplier<InspectionRecipe> _rebuild;
+    private readonly string? _sampleRecipePath;
     private InspectionConsumer? _consumer;
     private InspectionResult? _shownResult;
     private string _baseDirectory;
@@ -75,7 +76,12 @@ public sealed partial class InspectionViewModel : ObservableObject, IInspectionO
     [ObservableProperty]
     private string? _message;
 
-    public InspectionViewModel(ILogger<InspectionViewModel> logger, string? recipePath)
+    /// <param name="logger">Receives recipe load, save and rebuild events.</param>
+    /// <param name="sampleRecipePath">
+    /// Bundled demo recipe to start with. It is a starting point only: saving asks for another file
+    /// instead of overwriting it, so edits made for other images stay out of the samples tree.
+    /// </param>
+    public InspectionViewModel(ILogger<InspectionViewModel> logger, string? sampleRecipePath)
     {
         _logger = logger;
         _baseDirectory = AppContext.BaseDirectory;
@@ -83,13 +89,17 @@ public sealed partial class InspectionViewModel : ObservableObject, IInspectionO
         _timer = new DispatcherTimer(RefreshInterval, DispatcherPriority.Background, (_, _) => RefreshResult(), Dispatcher.CurrentDispatcher);
         _timer.Start();
 
-        if (recipePath is not null && File.Exists(recipePath))
+        if (sampleRecipePath is not null && File.Exists(sampleRecipePath))
         {
-            TryLoad(recipePath);
+            _sampleRecipePath = Path.GetFullPath(sampleRecipePath);
+            TryLoad(_sampleRecipePath);
         }
     }
 
     public ObservableCollection<ToolViewModel> Tools { get; } = [];
+
+    /// <summary>Folder the recipe dialogs start in while no recipe of the user's own is open.</summary>
+    public string? WorkingFolder { get; set; }
 
     // ---- IInspectionOverlay -----------------------------------------------------------
 
@@ -194,13 +204,13 @@ public sealed partial class InspectionViewModel : ObservableObject, IInspectionO
     [RelayCommand]
     private void SaveRecipe()
     {
-        if (RecipePath is null)
+        if (!HasOwnRecipeFile)
         {
             SaveRecipeAs();
             return;
         }
 
-        Save(RecipePath);
+        Save(RecipePath!);
     }
 
     [RelayCommand]
@@ -364,7 +374,10 @@ public sealed partial class InspectionViewModel : ObservableObject, IInspectionO
         }
     }
 
-    private string RecipeDirectory() => RecipePath is null ? _baseDirectory : Path.GetDirectoryName(RecipePath)!;
+    private bool HasOwnRecipeFile =>
+        RecipePath is not null && !string.Equals(RecipePath, _sampleRecipePath, StringComparison.OrdinalIgnoreCase);
+
+    private string RecipeDirectory() => HasOwnRecipeFile ? Path.GetDirectoryName(RecipePath)! : WorkingFolder ?? _baseDirectory;
 
     private void RefreshResult()
     {

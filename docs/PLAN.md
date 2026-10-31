@@ -228,6 +228,13 @@ public sealed class Frame : IDisposable
   - 미포함: UI에서 CSV 결과 기록(Core `CsvResultLogger`는 있음, `ReplaceEngine`이 로거 교체도 지원 — 같은 파일을 새 로거가 이어 쓰려면 이전 로거가 닫힌 뒤여야 해서 UI 연결은 보류)
 - [x] 통계 상태바 (FPS, 드롭, 큐 길이) 상시 표시 — 6a. 상태, 수신 FPS·누적, 표시 FPS·건너뜀, 총 드롭(카메라측), 소비자별 처리 FPS·큐·드롭·오류
 - [x] 로깅 (콘솔 + 파일 + UI 로그 줄) — 6a. `FileLoggerProvider`(일별 파일, 백그라운드 Channel로 I/O), `MemoryLogProvider`(최근 200줄, UI가 버전 폴링)
+- [x] 임의 이미지 폴더 열기 (단계 완료 후 추가) — 카메라 패널 [폴더 추가]
+  - `--images <folder>` 인자 대신 UI로 결정: 코드 차이가 수십 줄인데 인자는 폴더를 바꿀 때마다 재시작이 필요하고 잘못된 경로가 열거에서 조용히 빠짐
+  - `ImageFolderProvider.AddFolder`: `Create`는 폴더 목록을 확인하지 않지만 열거는 목록만 돌아 새로고침 때 사라지므로 Provider 변경 필요. 열거가 스레드 풀에서 돌아 배열 교체로 처리. Core 변경 없음. VM은 App.xaml.cs가 주입한 `Func<string, CameraInfo>`만 알고, 추가 시 전체 재열거는 하지 않음(GigE discovery 수 초)
+  - 샘플 레시피 보호: 시작 시 불러온 샘플 레시피에서 [저장]은 저장 위치를 묻고, 폴더를 추가했으면 대화상자는 그 폴더에서 시작. 저장소의 추적 파일이 덮어써지거나 다른 이미지용 레시피가 샘플 폴더에 저장되는 것을 막음. 샘플 자체를 고치려면 [다른 이름으로]에서 같은 파일 선택
+  - 비 ANSI 경로: `Cv2.ImRead`가 경로를 ANSI 코드 페이지로 마샬링해 CP949 밖 문자(베트남어 폴더로 실측)에서 `ArgumentException`. `File.ReadAllBytes` + `Cv2.ImDecode`로 교체(`ImageFolderCamera`, `InspectionEngine` 템플릿). `ImDecode`는 빈 버퍼에 예외를 던지므로 0바이트 파일은 기존과 같은 디코드 실패로 처리
+  - 2026-11-01 로컬(합성 이미지 400x300, 저장소 밖 폴더): 추가 후 새로고침해도 유지, 수신 30fps·드롭 0, Stain ROI 드래그 → (107,68,160x140), 첫 [저장]은 위치 확인 후 외부 폴더에 저장, 이후 [저장]은 같은 파일에 바로 저장, 샘플 레시피 해시 변화 없음. 이미지 없는 폴더 → "이미지 폴더 추가 실패: No supported images…", 크기 혼재 폴더 → "연결 실패: All images must have the same size. z_odd.png is 200x100, expected 400x300.", 이모지·베트남어 이름 폴더 재생 확인
+  - 재시작 후 폴더 목록 유지, 목록에서 제거, [새 레시피] 버튼은 미포함
 
 **완료 기준**: 처음 보는 사람에게 시연 가능한 화면
 
@@ -297,7 +304,7 @@ public sealed class Frame : IDisposable
 
 ### E. 6단계 — UI 연결 메모
 
-- 카메라 목록: `CameraRegistry`(ImageFolder는 `samples/part-inspection/images`를 기본 폴더로 등록)
+- 카메라 목록: `CameraRegistry`(ImageFolder는 `samples/part-inspection/images`를 기본 폴더로 등록, 실행 중 [폴더 추가]로 확장)
 - 라이브뷰: `AcquisitionPipeline.LiveView.TryTake()`를 `CompositionTarget.Rendering` 또는 `DispatcherTimer`에서 호출 → `WriteableBitmap`에 복사 후 프레임 Dispose
 - 통계 상태바: `pipeline.GetStatistics()`를 약 4Hz로 폴링(수신 FPS, 소비자별 처리 FPS·큐 길이·드롭, `TotalDroppedFrames`)
 - 검사: `InspectionEngine.Load("samples/part-inspection/part.recipe.json")` + `InspectionConsumer`. `ResultProduced`는 워커 스레드에서 발생 → Dispatcher 마샬링. 오버레이는 `InspectionResult.Overlays`(이미지 좌표)

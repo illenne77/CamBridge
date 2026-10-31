@@ -116,6 +116,7 @@ dotnet run --project src/CamBridge.App
 - pylon SDK가 설치되어 있으면 `PYLON_DEV_DIR` 환경변수로 자동 감지합니다(`Assemblies\Basler.Pylon\net8.0\x64\Basler.Pylon.dll`). 경로가 다르면 `dotnet build -p:PylonNetAssembly="<경로>\Basler.Pylon.dll"`로 지정합니다.
 - pylon 에뮬레이터를 쓰려면 앱 실행 전에 `set PYLON_CAMEMU=2`를 설정합니다. 카메라 목록의 "Basler pylon" 아래에 에뮬레이션 카메라 2대가 나타납니다.
 - 앱은 시작 시 `samples/part-inspection`의 이미지 폴더와 레시피를 불러옵니다. 카메라 목록에서 `images`를 연결하고 시작하면 바로 검사 시연이 됩니다.
+- 다른 이미지로 검사를 구성하려면 카메라 패널의 [폴더 추가]로 폴더를 고릅니다. 샘플 레시피는 시작점으로만 쓰이며, [저장]은 덮어쓰지 않고 저장 위치를 묻습니다. 한 폴더의 이미지는 크기가 같아야 합니다.
 - 환경변수가 없는 셸에서는 시스템에 저장된 `PYLON_DEV_DIR`을 읽습니다. SDK가 있는 PC에서 SDK 없이 빌드해 보려면 `-p:PylonNetAssembly=none`을 쓰고, 그 뒤 다시 SDK로 빌드할 때는 `--no-incremental`을 붙입니다(앱의 deps.json 갱신).
 
 ## 테스트

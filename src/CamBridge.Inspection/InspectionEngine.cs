@@ -107,7 +107,10 @@ public sealed class InspectionEngine : IDisposable
             throw new FileNotFoundException($"Template image for tool '{settings.Name}' not found.", path);
         }
 
-        Mat template = Cv2.ImRead(path, ImreadModes.Grayscale);
+        // Read through .NET file APIs: Cv2.ImRead marshals the path through the ANSI code page and
+        // rejects characters outside it. ImDecode throws on an empty buffer.
+        byte[] encoded = File.ReadAllBytes(path);
+        Mat template = encoded.Length == 0 ? new Mat() : Cv2.ImDecode(encoded, ImreadModes.Grayscale);
         if (template.Empty())
         {
             template.Dispose();

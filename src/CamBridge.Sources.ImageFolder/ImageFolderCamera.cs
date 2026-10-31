@@ -396,7 +396,7 @@ public sealed class ImageFolderCamera : ICamera
         for (int i = 0; i < files.Length; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using Mat mat = Cv2.ImRead(files[i], mode);
+            using Mat mat = Decode(files[i], mode);
             if (mat.Empty())
             {
                 throw new InvalidDataException($"Cannot decode image: {files[i]}");
@@ -431,8 +431,18 @@ public sealed class ImageFolderCamera : ICamera
 
     private static PixelFormat DetectFormat(string file)
     {
-        using Mat probe = Cv2.ImRead(file, ImreadModes.Unchanged);
+        using Mat probe = Decode(file, ImreadModes.Unchanged);
         return probe.Channels() == 1 ? PixelFormat.Mono8 : PixelFormat.Bgr8;
+    }
+
+    /// <summary>
+    /// Reads through .NET file APIs: <see cref="Cv2.ImRead"/> marshals the path through the ANSI code
+    /// page and rejects characters outside it. Returns an empty image when the file cannot be decoded.
+    /// </summary>
+    private static Mat Decode(string file, ImreadModes mode)
+    {
+        byte[] encoded = File.ReadAllBytes(file);
+        return encoded.Length == 0 ? new Mat() : Cv2.ImDecode(encoded, mode); // ImDecode throws on an empty buffer
     }
 
     private void AcquisitionLoop()

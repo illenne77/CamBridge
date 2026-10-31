@@ -92,4 +92,27 @@ public sealed class InspectionEngineTests : IDisposable
     {
         Assert.Throws<FileNotFoundException>(() => InspectionEngine.Create(SampleImages.Recipe("missing.png"), _dir));
     }
+
+    [Fact]
+    public void Create_TemplateInFolderOutsideAnsiCodePage_Loads()
+    {
+        string folder = Path.Combine(_dir, "tiếng-việt-😀");
+        Directory.CreateDirectory(folder);
+        File.Copy(Path.Combine(_dir, "fiducial.png"), Path.Combine(folder, "fiducial.png"));
+
+        using var engine = InspectionEngine.Create(SampleImages.Recipe(), folder);
+        using Mat image = SampleImages.Create();
+
+        Assert.Equal(Verdict.Ok, engine.Inspect(image, 1, DateTime.UtcNow).Verdict);
+    }
+
+    [Theory]
+    [InlineData(new byte[0])]
+    [InlineData(new byte[] { 1, 2, 3, 4 })]
+    public void Create_UndecodableTemplate_Throws(byte[] content)
+    {
+        File.WriteAllBytes(Path.Combine(_dir, "broken.png"), content);
+
+        Assert.Throws<InvalidDataException>(() => InspectionEngine.Create(SampleImages.Recipe("broken.png"), _dir));
+    }
 }
