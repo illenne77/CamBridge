@@ -14,6 +14,7 @@ public sealed record PipelineStatistics(
     public long TotalDroppedFrames => CameraDroppedFrames + Consumers.Sum(c => c.DroppedFrames);
 }
 
+/// <param name="ProcessedFrames">Frames the consumer accepted and finished; frames it declined are not counted.</param>
 /// <param name="DroppedFrames">Frames discarded by the queue overflow policy.</param>
 /// <param name="Faults">Frames whose processing threw.</param>
 public sealed record ConsumerStatistics(

@@ -123,7 +123,10 @@ public sealed partial class AcquisitionPipeline : IAsyncDisposable
             LiveView.Publish(frame.Share());
             foreach (ConsumerRunner runner in _runners)
             {
-                runner.Enqueue(frame.Share());
+                if (runner.Accepts(frame))
+                {
+                    runner.Enqueue(frame.Share());
+                }
             }
         }
 #pragma warning disable CA1031 // Never let an exception escape into the vendor SDK's acquisition thread.

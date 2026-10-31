@@ -1,5 +1,8 @@
 using CamBridge.Core;
+using CamBridge.Pipeline;
 using CamBridge.Pipeline.Saving;
+using CamBridge.Pipeline.Statistics;
+using CamBridge.Tests.Fakes;
 using OpenCvSharp;
 
 namespace CamBridge.Tests.Pipeline;
@@ -83,11 +86,54 @@ public sealed class ImageSaveConsumerTests : IDisposable
         for (int id = 1; id <= 7; id++)
         {
             using Frame frame = GradientFrame(PixelFormat.Mono8, 4, 4, id: id);
-            await consumer.ProcessAsync(frame, CancellationToken.None);
+            if (consumer.Accepts(frame))
+            {
+                await consumer.ProcessAsync(frame, CancellationToken.None);
+            }
         }
 
         string[] files = Directory.GetFiles(_root).Select(Path.GetFileName).Order().ToArray()!;
         Assert.Equal(["0001.png", "0004.png", "0007.png"], files);
+    }
+
+    [Fact]
+    public async Task SaveEveryNth_SlowStorage_DoesNotDropSkippedFrames()
+    {
+        // The first save stalls for the whole burst; frames it would skip must not overflow the queue behind it.
+        using var release = new ManualResetEventSlim();
+        var consumer = new ImageSaveConsumer(
+            new ImageSaveOptions { Directory = _root, FileNamePattern = "{frameId:D4}", SaveEveryNth = 100 },
+            new GatedEncoder(release));
+        var camera = new FakeCamera(new CameraInfo("fake", "1", "Fake", "Model"));
+        await using var pipeline = new AcquisitionPipeline(camera);
+        pipeline.AddConsumer(consumer, new ConsumerOptions { Capacity = 4, OverflowPolicy = QueueOverflowPolicy.DropOldest });
+        pipeline.Start();
+
+        for (int id = 1; id <= 300; id++)
+        {
+            camera.Emit(GradientFrame(PixelFormat.Mono8, 4, 4, id: id));
+        }
+
+        ConsumerStatistics stalled = pipeline.GetStatistics().Consumers[0];
+        Assert.Equal(0, stalled.DroppedFrames);
+
+        release.Set();
+        await pipeline.StopAsync(drain: true);
+
+        ConsumerStatistics stats = pipeline.GetStatistics().Consumers[0];
+        Assert.Equal(0, stats.DroppedFrames);
+        Assert.Equal(3, stats.ProcessedFrames);
+        string[] files = Directory.GetFiles(_root).Select(Path.GetFileName).Order().ToArray()!;
+        Assert.Equal(["0001.png", "0101.png", "0201.png"], files);
+    }
+
+    private sealed class GatedEncoder(ManualResetEventSlim release) : IFrameEncoder
+    {
+        public byte[] Encode(Frame frame, ImageFileFormat format, int jpegQuality)
+        {
+            release.Wait();
+            return [1];
+        }
     }
 
     [Fact]

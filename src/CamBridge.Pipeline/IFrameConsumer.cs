@@ -14,5 +14,11 @@ public interface IFrameConsumer
     /// <summary>Name shown in statistics.</summary>
     string Name { get; }
 
+    /// <summary>
+    /// Asked once per frame before queuing. Runs on the camera thread, so it must be quick and must
+    /// not block or throw. A declined frame takes no queue slot and counts as neither processed nor dropped.
+    /// </summary>
+    bool Accepts(Frame frame) => true;
+
     ValueTask ProcessAsync(Frame frame, CancellationToken cancellationToken);
 }

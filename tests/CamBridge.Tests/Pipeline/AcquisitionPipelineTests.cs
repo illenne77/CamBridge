@@ -84,6 +84,30 @@ public sealed class AcquisitionPipelineTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task DeclinedFrames_TakeNoQueueSlot_AndAreNotDrops()
+    {
+        using var gate = new SemaphoreSlim(0);
+        var consumer = new RecordingConsumer { Gate = gate, Filter = frame => frame.FrameId % 10 == 1 };
+        _pipeline.AddConsumer(consumer, new ConsumerOptions { Capacity = 2, OverflowPolicy = QueueOverflowPolicy.DropOldest });
+        _pipeline.Start();
+
+        Emit(1);
+        await consumer.FirstFrameStarted.Task.WaitAsync(TestTimeout);
+        EmitRange(2, 21); // only 11 and 21 are accepted, which exactly fills the queue
+
+        gate.Release(int.MaxValue / 2);
+        await _pipeline.StopAsync(drain: true);
+        _pipeline.LiveView.TryTake()?.Dispose();
+
+        Assert.Equal([1L, 11, 21], consumer.Ids);
+        PipelineStatistics stats = _pipeline.GetStatistics();
+        Assert.Equal(21, stats.ReceivedFrames);
+        Assert.Equal(3, stats.Consumers[0].ProcessedFrames);
+        Assert.Equal(0, stats.TotalDroppedFrames);
+        Assert.Equal(0, _pool.Outstanding);
+    }
+
+    [Fact]
     public async Task DropNewest_KeepsQueuedFrames()
     {
         using var gate = new SemaphoreSlim(0);

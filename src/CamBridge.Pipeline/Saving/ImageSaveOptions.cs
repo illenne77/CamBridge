@@ -18,6 +18,6 @@ public sealed record ImageSaveOptions
 
     public int JpegQuality { get; init; } = 90;
 
-    /// <summary>Save one of every N frames that reach the consumer (1 = all).</summary>
+    /// <summary>Save one of every N frames from the pipeline (1 = all). The rest are declined before queuing.</summary>
     public int SaveEveryNth { get; init; } = 1;
 }

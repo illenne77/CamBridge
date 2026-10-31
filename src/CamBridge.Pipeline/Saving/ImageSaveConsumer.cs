@@ -7,6 +7,8 @@ namespace CamBridge.Pipeline.Saving;
 /// <summary>
 /// Saves frames to disk from its own pipeline queue, so slow storage never stalls acquisition
 /// or other consumers; when it falls behind, its queue policy drops frames and counts them.
+/// Frames skipped by <see cref="ImageSaveOptions.SaveEveryNth"/> never enter the queue, so a
+/// dropped frame always means a save that did not happen.
 /// </summary>
 public sealed partial class ImageSaveConsumer : IFrameConsumer
 {
@@ -31,14 +33,11 @@ public sealed partial class ImageSaveConsumer : IFrameConsumer
     /// <summary>Path of the most recently saved file.</summary>
     public string? LastSavedPath { get; private set; }
 
+    public bool Accepts(Frame frame) => (Interlocked.Increment(ref _seen) - 1) % _options.SaveEveryNth == 0;
+
     public async ValueTask ProcessAsync(Frame frame, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(frame);
-
-        if (_seen++ % _options.SaveEveryNth != 0)
-        {
-            return;
-        }
 
         string path = BuildPath(frame);
         byte[] payload = _encoder.Encode(frame, _options.Format, _options.JpegQuality);

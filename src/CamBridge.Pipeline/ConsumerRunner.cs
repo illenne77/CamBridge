@@ -45,6 +45,8 @@ internal sealed partial class ConsumerRunner : IDisposable
         _accepting = true;
     }
 
+    public bool Accepts(Frame frame) => _consumer.Accepts(frame);
+
     /// <summary>Queues a frame, taking ownership of the handle. Called on the camera thread.</summary>
     public void Enqueue(Frame frame)
     {

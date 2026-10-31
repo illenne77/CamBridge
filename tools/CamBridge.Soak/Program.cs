@@ -188,7 +188,7 @@ SoakSample Sample(TimeSpan elapsed, PipelineStatistics stats)
             $"{c.Name} {c.ProcessedFps:0.0}fps q{c.QueueLength}/{c.QueueCapacity} drop {c.DroppedFrames} err {c.Faults}"))),
         inspection.OkCount,
         inspection.NgCount,
-        save is null ? 0 : (save.ProcessedFrames + saveEvery - 1) / saveEvery);
+        save?.ProcessedFrames ?? 0);
 }
 
 async Task<ICamera> CreateCameraAsync()

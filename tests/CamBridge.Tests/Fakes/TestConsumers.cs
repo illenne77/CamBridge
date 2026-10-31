@@ -18,7 +18,11 @@ internal sealed class RecordingConsumer(string name = "Recorder") : IFrameConsum
 
     public Func<Frame, Task>? OnFrame { get; init; }
 
+    public Func<Frame, bool>? Filter { get; init; }
+
     public IReadOnlyList<long> Ids => _ids.ToArray();
+
+    public bool Accepts(Frame frame) => Filter?.Invoke(frame) ?? true;
 
     public async ValueTask ProcessAsync(Frame frame, CancellationToken cancellationToken)
     {
