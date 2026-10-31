@@ -34,4 +34,10 @@ internal sealed class BlockIdUnwrapper(bool sixteenBitWrap)
         _lastRaw = rawBlockId;
         return _offset + rawBlockId;
     }
+
+    /// <summary>
+    /// The frame id of a failed grab, numbered like good frames, or null when its block ID says
+    /// nothing about the frame. Then the loss counts as a gap at the next good frame instead.
+    /// </summary>
+    public long? NextLost(long rawBlockId) => rawBlockId > 0 ? Next(rawBlockId) : null;
 }

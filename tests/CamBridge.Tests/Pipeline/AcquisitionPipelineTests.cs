@@ -199,6 +199,109 @@ public sealed class AcquisitionPipelineTests : IAsyncDisposable
         Assert.Equal(5, stats.CameraDroppedFrames);
     }
 
+    private void ReportLost(long id) =>
+        _camera.RaiseError(new CameraErrorEventArgs(CameraErrorKind.FrameError, "lost", lostFrameId: id));
+
+    [Fact]
+    public async Task LostFrames_CountAtOnce_EvenIfNoGoodFrameFollows()
+    {
+        _pipeline.Start();
+
+        ReportLost(1);
+        ReportLost(2);
+        ReportLost(3);
+
+        PipelineStatistics stats = _pipeline.GetStatistics();
+        Assert.Equal(0, stats.ReceivedFrames);
+        Assert.Equal(3, stats.CameraDroppedFrames);
+        Assert.Equal(3, stats.TotalDroppedFrames);
+        await _pipeline.StopAsync();
+    }
+
+    [Fact]
+    public async Task LostFrames_AreNotCountedAgain_ByTheNextGap()
+    {
+        _pipeline.Start();
+
+        Emit(1);
+        ReportLost(2);
+        ReportLost(3);
+        Emit(4);
+        Emit(6); // 5 vanished without a report
+        ReportLost(8); // 7 vanished too, before the frame reported lost
+        Emit(9);
+        await _pipeline.StopAsync();
+
+        PipelineStatistics stats = _pipeline.GetStatistics();
+        Assert.Equal(4, stats.ReceivedFrames);
+        Assert.Equal(5, stats.CameraDroppedFrames); // 2, 3, 5, 7, 8
+    }
+
+    [Fact]
+    public async Task LostFrame_ReportedAfterALaterFrame_IsNotCountedTwice()
+    {
+        _pipeline.Start();
+
+        Emit(1);
+        Emit(3);
+        ReportLost(2);
+        Emit(4);
+        await _pipeline.StopAsync();
+
+        Assert.Equal(1, _pipeline.GetStatistics().CameraDroppedFrames);
+    }
+
+    [Fact]
+    public async Task FrameErrorWithoutALostFrame_IsNotADrop()
+    {
+        _pipeline.Start();
+
+        Emit(1);
+        _camera.RaiseError(new CameraErrorEventArgs(CameraErrorKind.FrameError, "a handler failed"));
+        Emit(2);
+        await _pipeline.StopAsync();
+
+        Assert.Equal(0, _pipeline.GetStatistics().CameraDroppedFrames);
+    }
+
+    [Fact]
+    public async Task LostFrames_AfterStop_AreNotCounted()
+    {
+        _pipeline.Start();
+        await _pipeline.StopAsync();
+
+        ReportLost(1);
+
+        Assert.Equal(0, _pipeline.GetStatistics().CameraDroppedFrames);
+    }
+
+    [Fact]
+    public async Task PeakQueueLength_AndMaxProcessingTime_OutliveTheStall()
+    {
+        using var gate = new SemaphoreSlim(0);
+        var consumer = new RecordingConsumer { Gate = gate };
+        _pipeline.AddConsumer(consumer, new ConsumerOptions { Capacity = 4, OverflowPolicy = QueueOverflowPolicy.DropOldest });
+        _pipeline.Start();
+
+        Emit(1);
+        await consumer.FirstFrameStarted.Task.WaitAsync(TestTimeout);
+        EmitRange(2, 4);
+        await Task.Delay(50); // the first frame is stuck in the consumer at least this long
+
+        gate.Release(int.MaxValue / 2);
+        await _pipeline.StopAsync(drain: true);
+
+        ConsumerStatistics stats = _pipeline.GetStatistics().Consumers[0];
+        Assert.Equal(0, stats.QueueLength);
+        Assert.Equal(3, stats.PeakQueueLength);
+        Assert.InRange(stats.MaxProcessingTime, TimeSpan.FromMilliseconds(40), TestTimeout);
+
+        _pipeline.Start();
+        Assert.Equal(0, _pipeline.GetStatistics().Consumers[0].PeakQueueLength);
+        Assert.Equal(TimeSpan.Zero, _pipeline.GetStatistics().Consumers[0].MaxProcessingTime);
+        await _pipeline.StopAsync();
+    }
+
     [Fact]
     public async Task FailingConsumer_IsCountedAndKeepsRunning()
     {

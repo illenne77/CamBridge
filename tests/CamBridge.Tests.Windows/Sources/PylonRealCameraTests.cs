@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using CamBridge.Core;
+using CamBridge.Pipeline;
+using CamBridge.Pipeline.Statistics;
 using CamBridge.Sources.Pylon;
 using CamBridge.Tests.Fakes;
 using Xunit.Abstractions;
@@ -267,6 +269,134 @@ public sealed class PylonRealCameraTests(ITestOutputHelper output) : IAsyncLifet
 
         output.WriteLine($"Negotiated packet size: {negotiated}");
         Assert.True(negotiated > Small, $"Expected a larger packet than {Small}, got {negotiated}.");
+    }
+
+    /// <summary>
+    /// A socket buffer far below one frame overflows in the host: real packet loss with no cable to
+    /// disturb. How much is lost varies from run to run, so tests check the accounting, not an amount.
+    /// Only the socket driver has this buffer; packet sizes here need jumbo frames on the NIC.
+    /// </summary>
+    private async Task OpenWithMinimalSocketBufferAsync(long packetSize)
+    {
+        await OpenManualAsync();
+        Camera.SetParameter("StreamType", "SocketDriver");
+        Camera.SetParameter("SocketBufferSize", 1L);
+        Camera.SetParameter("GevSCPSPacketSize", packetSize);
+        Camera.SetParameter(ParameterNames.AcquisitionFrameRate, 120.0);
+    }
+
+    private sealed record LossRun(long Received, long Dropped, long Reported, long Failed, long IdRange);
+
+    private async Task<LossRun> AcquireThroughPipelineAsync()
+    {
+        var ids = new ConcurrentQueue<long>();
+        long reported = 0;
+        void OnFrame(object? sender, FrameReceivedEventArgs e) => ids.Enqueue(e.Frame.FrameId);
+        void OnError(object? sender, CameraErrorEventArgs e)
+        {
+            if (e.LostFrameId is long id)
+            {
+                ids.Enqueue(id);
+                Interlocked.Increment(ref reported);
+            }
+        }
+
+        Camera.FrameReceived += OnFrame;
+        Camera.ErrorOccurred += OnError;
+        await using var pipeline = new AcquisitionPipeline(Camera);
+        pipeline.Start();
+        await Camera.StartAcquisitionAsync();
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        WriteTransportStatistics();
+        long failed = (long)Camera.GetParameter("Statistic_Failed_Buffer_Count");
+        await Camera.StopAcquisitionAsync();
+        await pipeline.StopAsync();
+        Camera.FrameReceived -= OnFrame;
+        Camera.ErrorOccurred -= OnError;
+
+        PipelineStatistics stats = pipeline.GetStatistics();
+        var run = new LossRun(stats.ReceivedFrames, stats.CameraDroppedFrames, Volatile.Read(ref reported), failed, ids.IsEmpty ? 0 : ids.Max() - ids.Min() + 1);
+        output.WriteLine(run.ToString());
+        return run;
+    }
+
+    [PylonRealCameraFact]
+    public async Task SocketOverflow_ShowsAsResends_InTheTransportCounters()
+    {
+        await OpenWithMinimalSocketBufferAsync(packetSize: 9000);
+        if (Camera.Info.Interface != CameraInterface.GigE)
+        {
+            return;
+        }
+
+        int frames = 0;
+        Camera.FrameReceived += (_, _) => Interlocked.Increment(ref frames);
+        await Camera.StartAcquisitionAsync();
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        WriteTransportStatistics();
+        long resends = (long)Camera.GetParameter("Statistic_Resend_Request_Count");
+        await Camera.StopAcquisitionAsync();
+
+        Assert.True(resends > 0, "Expected the overflowing socket buffer to cause resend requests.");
+        Assert.True(Volatile.Read(ref frames) > 0, "Expected frames to arrive despite the resends.");
+    }
+
+    [PylonRealCameraFact]
+    public async Task SomeFramesLost_EveryIdIsEitherReceivedOrDropped()
+    {
+        await OpenWithMinimalSocketBufferAsync(packetSize: 6000);
+        if (Camera.Info.Interface != CameraInterface.GigE)
+        {
+            return;
+        }
+
+        LossRun run = await AcquireThroughPipelineAsync();
+        for (int attempt = 1; attempt < 4 && run.Reported == 0; attempt++)
+        {
+            run = await AcquireThroughPipelineAsync(); // about one 5 s run in six loses nothing here
+        }
+
+        Assert.True(run.Reported > 0, "Expected failed grabs at this packet size.");
+        Assert.Equal(run.IdRange, run.Received + run.Dropped);
+    }
+
+    [PylonRealCameraFact]
+    public async Task EveryFrameLost_StillCountsAsDrops()
+    {
+        await OpenWithMinimalSocketBufferAsync(packetSize: 4500);
+        if (Camera.Info.Interface != CameraInterface.GigE)
+        {
+            return;
+        }
+
+        LossRun run = await AcquireThroughPipelineAsync();
+
+        // Gaps alone would read 0 here: no good frame ever closes them.
+        Assert.True(run.Dropped > 0, "Expected failed grabs to count as drops at this packet size.");
+        Assert.Equal(run.IdRange, run.Received + run.Dropped);
+    }
+
+    [PylonRealCameraFact]
+    public async Task StreamSettings_AreListedAndLockWhileAcquiring()
+    {
+        await OpenManualAsync();
+        if (Camera.Info.Interface != CameraInterface.GigE)
+        {
+            return;
+        }
+
+        CameraParameter type = Camera.FindParameter("StreamType")!;
+        output.WriteLine($"Stream types: {string.Join(", ", type.EnumEntries)}, current {Camera.GetParameter("StreamType")}");
+        Assert.Contains("SocketDriver", type.EnumEntries);
+
+        Camera.SetParameter("StreamType", "SocketDriver");
+        Assert.Equal("SocketDriver", Camera.GetParameter("StreamType"));
+        Camera.SetParameter("SocketBufferSize", 2048L);
+        Assert.Equal(2048L, Camera.GetParameter("SocketBufferSize"));
+
+        await Camera.StartAcquisitionAsync();
+        Assert.Throws<InvalidOperationException>(() => Camera.SetParameter("StreamType", "WindowsFilterDriver"));
+        await Camera.StopAcquisitionAsync();
     }
 
     [PylonRealCameraFact]

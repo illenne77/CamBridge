@@ -11,6 +11,7 @@ internal sealed partial class ConsumerRunner : IDisposable
     private readonly IFrameConsumer _consumer;
     private readonly ConsumerOptions _options;
     private readonly ILogger _logger;
+    private readonly TimeProvider _timeProvider;
     private readonly RateMeter _rate;
     private Channel<Frame> _channel;
     private CancellationTokenSource? _cts;
@@ -19,6 +20,8 @@ internal sealed partial class ConsumerRunner : IDisposable
     private long _dropped;
     private long _faults;
     private string? _lastError;
+    private int _peakQueueLength;
+    private long _maxProcessingTicks;
     private volatile bool _accepting;
 
     public ConsumerRunner(IFrameConsumer consumer, ConsumerOptions options, TimeProvider timeProvider, ILogger logger)
@@ -26,6 +29,7 @@ internal sealed partial class ConsumerRunner : IDisposable
         _consumer = consumer;
         _options = options;
         _logger = logger;
+        _timeProvider = timeProvider;
         _rate = new RateMeter(timeProvider);
         _channel = CreateChannel();
     }
@@ -38,6 +42,8 @@ internal sealed partial class ConsumerRunner : IDisposable
         Interlocked.Exchange(ref _dropped, 0);
         Interlocked.Exchange(ref _faults, 0);
         Volatile.Write(ref _lastError, null);
+        Volatile.Write(ref _peakQueueLength, 0);
+        Interlocked.Exchange(ref _maxProcessingTicks, 0);
 
         _cts = new CancellationTokenSource();
         CancellationToken token = _cts.Token;
@@ -53,11 +59,13 @@ internal sealed partial class ConsumerRunner : IDisposable
         ChannelWriter<Frame> writer = _channel.Writer;
         if (writer.TryWrite(frame))
         {
+            RecordQueueLength();
             return;
         }
 
         if (_options.OverflowPolicy == QueueOverflowPolicy.Wait && WaitAndWrite(writer, frame))
         {
+            RecordQueueLength();
             return;
         }
 
@@ -106,7 +114,19 @@ internal sealed partial class ConsumerRunner : IDisposable
         _channel.Reader.Count,
         _options.Capacity,
         Interlocked.Read(ref _faults),
-        Volatile.Read(ref _lastError));
+        Volatile.Read(ref _lastError),
+        Volatile.Read(ref _peakQueueLength),
+        TimeSpan.FromTicks(Interlocked.Read(ref _maxProcessingTicks)));
+
+    private void RecordQueueLength()
+    {
+        // Only the camera thread writes, so this needs no compare-and-swap.
+        int length = _channel.Reader.Count;
+        if (length > Volatile.Read(ref _peakQueueLength))
+        {
+            Volatile.Write(ref _peakQueueLength, length);
+        }
+    }
 
     private Channel<Frame> CreateChannel()
     {
@@ -185,11 +205,13 @@ internal sealed partial class ConsumerRunner : IDisposable
 
     private async Task ProcessOneAsync(Frame frame, CancellationToken cancellationToken)
     {
+        long started = _timeProvider.GetTimestamp();
         try
         {
             await _consumer.ProcessAsync(frame, cancellationToken).ConfigureAwait(false);
             Interlocked.Increment(ref _processed);
             _rate.Record();
+            RecordProcessingTime(started);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -201,7 +223,18 @@ internal sealed partial class ConsumerRunner : IDisposable
         {
             Interlocked.Increment(ref _faults);
             Volatile.Write(ref _lastError, ex.Message);
+            RecordProcessingTime(started);
             LogConsumerFault(_logger, _consumer.Name, frame.FrameId, ex);
+        }
+    }
+
+    private void RecordProcessingTime(long started)
+    {
+        // Only the worker writes, so this needs no compare-and-swap.
+        long ticks = _timeProvider.GetElapsedTime(started).Ticks;
+        if (ticks > Interlocked.Read(ref _maxProcessingTicks))
+        {
+            Interlocked.Exchange(ref _maxProcessingTicks, ticks);
         }
     }
 

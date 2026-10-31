@@ -1,3 +1,4 @@
+using CamBridge.App.Logging;
 using CamBridge.Core;
 using CamBridge.Inspection;
 using CamBridge.Pipeline;
@@ -17,6 +18,7 @@ public sealed partial class CameraSession : IAsyncDisposable
 
     private readonly ILogger _logger;
     private readonly InspectionEngine? _initialEngine;
+    private readonly LogThrottle _frameErrorLog = new(TimeSpan.FromSeconds(1));
 
     private CameraSession(ICamera camera, AcquisitionPipeline pipeline, InspectionEngine? engine, ILogger logger)
     {
@@ -128,7 +130,11 @@ public sealed partial class CameraSession : IAsyncDisposable
     {
         if (e.Kind == CameraErrorKind.FrameError)
         {
-            LogFrameError(_logger, e.Exception, e.Message);
+            // A bad link can fail every frame. The drop counter has the count, so the log needs only a sample.
+            if (_frameErrorLog.ShouldLog(out long skipped))
+            {
+                LogFrameError(_logger, e.Exception, e.Message, skipped);
+            }
         }
         else
         {
@@ -154,6 +160,6 @@ public sealed partial class CameraSession : IAsyncDisposable
     [LoggerMessage(Level = LogLevel.Error, Message = "Camera error {Kind}: {Message}")]
     private static partial void LogCameraError(ILogger logger, Exception? exception, CameraErrorKind kind, string message);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "{Message}")]
-    private static partial void LogFrameError(ILogger logger, Exception? exception, string message);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Message} (+{Skipped} more since the last line)")]
+    private static partial void LogFrameError(ILogger logger, Exception? exception, string message, long skipped);
 }
