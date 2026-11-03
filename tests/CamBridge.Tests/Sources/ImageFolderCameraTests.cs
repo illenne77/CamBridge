@@ -139,6 +139,37 @@ public sealed class ImageFolderCameraTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task RemoveFolder_DropsItFromEnumerationAndKeepsTheFiles()
+    {
+        string removed = Folder("removed");
+        string kept = Folder("kept");
+        var provider = new ImageFolderProvider([removed]);
+        provider.AddFolder(kept);
+
+        Assert.True(provider.RemoveFolder(removed + Path.DirectorySeparatorChar));
+
+        CameraInfo enumerated = Assert.Single(await provider.EnumerateAsync());
+        Assert.Equal(Path.GetFullPath(kept), enumerated.DeviceId);
+        Assert.Equal(3, Directory.GetFiles(removed).Length);
+    }
+
+    [Fact]
+    public async Task RemoveFolder_UnknownFolder_ReturnsFalse()
+    {
+        string folder = Folder("known");
+        var provider = new ImageFolderProvider([folder]);
+
+        Assert.False(provider.RemoveFolder(Path.Combine(_root, "other")));
+
+        Assert.Single(await provider.EnumerateAsync());
+        if (OperatingSystem.IsWindows()) // the other spelling only exists on a case-insensitive file system
+        {
+            Assert.True(provider.RemoveFolder(folder.Replace("known", "KNOWN", StringComparison.Ordinal)));
+            Assert.Empty(await provider.EnumerateAsync());
+        }
+    }
+
+    [Fact]
     public void CreateInfo_DriveRoot_IsNamedByItsPath()
     {
         string root = Path.GetPathRoot(_root)!;

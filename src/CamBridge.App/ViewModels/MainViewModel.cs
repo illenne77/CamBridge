@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Threading;
 using CamBridge.App.Logging;
 using CamBridge.App.Session;
+using CamBridge.App.Settings;
 using CamBridge.Core;
 using CamBridge.Inspection;
 using CamBridge.Pipeline;
@@ -32,7 +33,7 @@ public sealed partial class MainViewModel : ObservableObject
     private static readonly TimeSpan StatisticsInterval = TimeSpan.FromMilliseconds(250);
 
     private readonly CameraRegistry _registry;
-    private readonly Func<string, CameraInfo> _addImageFolder;
+    private readonly IImageFolderCatalog _imageFolders;
     private readonly ILoggerFactory _loggerFactory;
     private readonly MemoryLogProvider _memoryLog;
     private readonly ILogger _logger;
@@ -41,12 +42,12 @@ public sealed partial class MainViewModel : ObservableObject
     private long _logVersion = -1;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(RemoveImageFolderCommand))]
     private CameraItem? _selectedCamera;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsConnected))]
-    [NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(DisconnectCommand), nameof(StartCommand), nameof(StopCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(DisconnectCommand), nameof(StartCommand), nameof(StopCommand), nameof(RemoveImageFolderCommand))]
     private CameraSession? _session;
 
     [ObservableProperty]
@@ -55,7 +56,7 @@ public sealed partial class MainViewModel : ObservableObject
     private CameraState _state = CameraState.Closed;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(DisconnectCommand), nameof(StartCommand), nameof(StopCommand), nameof(RefreshCamerasCommand), nameof(AddImageFolderCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(DisconnectCommand), nameof(StartCommand), nameof(StopCommand), nameof(RefreshCamerasCommand), nameof(AddImageFolderCommand), nameof(RemoveImageFolderCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -79,20 +80,20 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string? _enumerationMessage;
 
-    /// <param name="addImageFolder">
-    /// Registers a folder as a virtual camera, so this class needs no concrete camera source.
+    /// <param name="imageFolders">
+    /// Adds and removes folders shown as virtual cameras, so this class needs no concrete camera source.
     /// </param>
     /// <param name="sampleRecipePath">Bundled demo recipe to start with; see <see cref="InspectionViewModel"/>.</param>
     public MainViewModel(
-        CameraRegistry registry, ILoggerFactory loggerFactory, MemoryLogProvider memoryLog, Func<string, CameraInfo> addImageFolder, string? sampleRecipePath = null)
+        CameraRegistry registry, ILoggerFactory loggerFactory, MemoryLogProvider memoryLog, IImageFolderCatalog imageFolders, string? sampleRecipePath = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(loggerFactory);
         ArgumentNullException.ThrowIfNull(memoryLog);
-        ArgumentNullException.ThrowIfNull(addImageFolder);
+        ArgumentNullException.ThrowIfNull(imageFolders);
 
         _registry = registry;
-        _addImageFolder = addImageFolder;
+        _imageFolders = imageFolders;
         _loggerFactory = loggerFactory;
         _memoryLog = memoryLog;
         _logger = loggerFactory.CreateLogger<MainViewModel>();
@@ -169,7 +170,7 @@ public sealed partial class MainViewModel : ObservableObject
         string folder = dialog.FolderName;
         await RunAsync("이미지 폴더 추가 실패", async () =>
         {
-            CameraInfo info = await Task.Run(() => _addImageFolder(folder)); // a network path can stall
+            CameraInfo info = await Task.Run(() => _imageFolders.Add(folder)); // a network path can stall
             CameraItem? item = Cameras.FirstOrDefault(c => c.Info == info);
             if (item is null)
             {
@@ -179,6 +180,19 @@ public sealed partial class MainViewModel : ObservableObject
 
             SelectedCamera = item;
             Inspection.WorkingFolder = folder;
+        });
+    }
+
+    /// <summary>Takes a folder off the list for this and later runs; its files stay.</summary>
+    [RelayCommand(CanExecute = nameof(CanRemoveImageFolder))]
+    private Task RemoveImageFolderAsync()
+    {
+        CameraItem item = SelectedCamera!;
+        return RunAsync("이미지 폴더 제거 실패", async () =>
+        {
+            await Task.Run(() => _imageFolders.Remove(item.Info)); // writes the settings file
+            Cameras.Remove(item);
+            SelectedCamera = Cameras.FirstOrDefault(c => c.Info.ProviderId == item.Info.ProviderId) ?? Cameras.FirstOrDefault();
         });
     }
 
@@ -208,6 +222,11 @@ public sealed partial class MainViewModel : ObservableObject
             LiveFrames = session.Pipeline.LiveView;
             State = session.State;
             OnPropertyChanged(nameof(ConnectedCameraName));
+            if (_imageFolders.IsAddedFolder(info))
+            {
+                Inspection.WorkingFolder = info.DeviceId; // a folder restored at startup was never picked in this run
+            }
+
             await Parameters.AttachAsync(session.Camera);
         });
     }
@@ -236,6 +255,11 @@ public sealed partial class MainViewModel : ObservableObject
     private bool CanRefresh() => !IsBusy;
 
     private bool CanConnect() => SelectedCamera is not null && Session is null && !IsBusy;
+
+    // The connected folder stays listed until it is disconnected, so the panel never shows a
+    // connection to a camera that is not in the list.
+    private bool CanRemoveImageFolder() =>
+        SelectedCamera is { } item && _imageFolders.IsAddedFolder(item.Info) && Session?.Camera.Info != item.Info && !IsBusy;
 
     private bool CanDisconnect() => Session is not null && !IsBusy;
 

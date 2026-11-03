@@ -80,6 +80,10 @@
                     <WrapPanel>
                         <Button Content="새로고침" Command="{Binding RefreshCamerasCommand}" />
                         <Button Content="폴더 추가" Command="{Binding AddImageFolderCommand}" />
+                        <Button Content="목록에서 제거" Command="{Binding RemoveImageFolderCommand}"
+                                ToolTip="추가한 이미지 폴더를 목록에서 뺍니다. 폴더의 파일은 그대로 둡니다." />
+                    </WrapPanel>
+                    <WrapPanel>
                         <Button Content="연결" Command="{Binding ConnectCommand}" />
                         <Button Content="연결 해제" Command="{Binding DisconnectCommand}" />
                     </WrapPanel>

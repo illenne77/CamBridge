@@ -11,7 +11,7 @@ public sealed class ImageFolderProvider : ICameraProvider
 
     internal static readonly string[] SupportedExtensions = [".png", ".bmp", ".jpg", ".jpeg", ".tif", ".tiff"];
 
-    private readonly object _addSync = new();
+    private readonly object _sync = new();
     private readonly ImageFolderOptions _options;
 
     // Replaced, never changed in place: enumeration on the thread pool reads a stable snapshot.
@@ -51,7 +51,7 @@ public sealed class ImageFolderProvider : ICameraProvider
             throw new InvalidDataException($"No supported images in {path}.");
         }
 
-        lock (_addSync)
+        lock (_sync)
         {
             string[] folders = _folders;
             string? known = folders.FirstOrDefault(f => string.Equals(f, path, StringComparison.OrdinalIgnoreCase));
@@ -64,6 +64,30 @@ public sealed class ImageFolderProvider : ICameraProvider
         }
 
         return CreateInfo(path);
+    }
+
+    /// <summary>
+    /// Drops a folder from the enumeration; its files are not touched. A camera already created
+    /// from it keeps working until it is closed.
+    /// </summary>
+    /// <returns>False when the folder was not in the list.</returns>
+    public bool RemoveFolder(string folder)
+    {
+        ArgumentNullException.ThrowIfNull(folder);
+
+        string path = NormalizePath(folder);
+        lock (_sync)
+        {
+            string[] folders = _folders;
+            string[] remaining = folders.Where(f => !string.Equals(f, path, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (remaining.Length == folders.Length)
+            {
+                return false;
+            }
+
+            _folders = remaining;
+            return true;
+        }
     }
 
     public Task<IReadOnlyList<CameraInfo>> EnumerateAsync(CancellationToken cancellationToken = default)
