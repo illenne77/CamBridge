@@ -519,6 +519,7 @@ public sealed class LiveView : Control
         _image.Source = null;
         _placeholder.Visibility = Visibility.Visible;
         _info.Text = string.Empty;
+        _overlayDirty = true; // UpdateOverlay erases the overlay only when it is marked dirty
     }
 
     private ToggleButton ToolbarToggle(string text, DependencyProperty property)
