@@ -2,9 +2,9 @@ using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using CamBridge.App.Logging;
+using CamBridge.App.Settings;
 using CamBridge.App.ViewModels;
 using CamBridge.Core;
-using CamBridge.Sources.ImageFolder;
 using CamBridge.Sources.Pylon;
 using CamBridge.Sources.Webcam;
 using Microsoft.Extensions.Logging;
@@ -37,10 +37,10 @@ public partial class App : Application
         _logger = _loggerFactory.CreateLogger<App>();
         DispatcherUnhandledException += OnDispatcherUnhandledException;
 
-        string? samples = FindUpwards(SampleImagesFolder);
-        var imageFolders = new ImageFolderProvider(samples is null ? [] : [samples]);
-        var registry = new CameraRegistry(CreateProviders(imageFolders));
-        var viewModel = new MainViewModel(registry, _loggerFactory, memoryLog, imageFolders.AddFolder, FindUpwards(SampleRecipe));
+        var imageFolders = new ImageFolderCatalog(
+            FindUpwards(SampleImagesFolder), new UserSettingsStore(UserSettingsStore.DefaultPath), _loggerFactory.CreateLogger<ImageFolderCatalog>());
+        var registry = new CameraRegistry(CreateProviders(imageFolders.Provider));
+        var viewModel = new MainViewModel(registry, _loggerFactory, memoryLog, imageFolders, FindUpwards(SampleRecipe));
         var window = new MainWindow(viewModel);
         MainWindow = window;
         window.Show();
@@ -55,7 +55,7 @@ public partial class App : Application
         base.OnExit(e);
     }
 
-    private List<ICameraProvider> CreateProviders(ImageFolderProvider imageFolders)
+    private List<ICameraProvider> CreateProviders(ICameraProvider imageFolders)
     {
         List<ICameraProvider> providers =
         [

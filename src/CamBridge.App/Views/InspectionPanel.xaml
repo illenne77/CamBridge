@@ -84,6 +84,7 @@
             <TextBox Text="{Binding RecipeName, UpdateSourceTrigger=LostFocus}" />
             <TextBlock Text="{Binding RecipePath}" Foreground="Gray" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding RecipePath}" />
             <WrapPanel Margin="0,4,0,0">
+                <Button Content="새로" Command="{Binding NewRecipeCommand}" />
                 <Button Content="불러오기" Command="{Binding LoadRecipeCommand}" />
                 <Button Content="저장" Command="{Binding SaveRecipeCommand}" />
                 <Button Content="다른 이름으로" Command="{Binding SaveRecipeAsCommand}" />
@@ -113,9 +114,9 @@
             <TextBlock Foreground="Gray" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"
                        Text="라이브뷰의 [ROI 편집]: ROI 클릭으로 선택, 드래그로 이동·크기 조절, 빈 곳 드래그로 선택한 도구의 ROI를 새로 그립니다." />
 
-            <!-- Selected tool settings -->
+            <!-- Selected tool settings. An implicit template, so nothing is drawn while no tool is selected. -->
             <ContentControl Content="{Binding SelectedTool}" Margin="0,6,0,0">
-                <ContentControl.ContentTemplate>
+                <ContentControl.Resources>
                     <DataTemplate DataType="{x:Type vm:ToolViewModel}">
                         <StackPanel>
                             <TextBlock Style="{StaticResource SectionHeader}">
@@ -178,7 +179,7 @@
                             </Grid>
                         </StackPanel>
                     </DataTemplate>
-                </ContentControl.ContentTemplate>
+                </ContentControl.Resources>
             </ContentControl>
 
             <TextBlock Text="{Binding Message}" Foreground="Firebrick" TextWrapping="Wrap" Margin="0,8,0,0" />

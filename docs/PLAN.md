@@ -234,7 +234,19 @@ public sealed class Frame : IDisposable
   - 샘플 레시피 보호: 시작 시 불러온 샘플 레시피에서 [저장]은 저장 위치를 묻고, 폴더를 추가했으면 대화상자는 그 폴더에서 시작. 저장소의 추적 파일이 덮어써지거나 다른 이미지용 레시피가 샘플 폴더에 저장되는 것을 막음. 샘플 자체를 고치려면 [다른 이름으로]에서 같은 파일 선택
   - 비 ANSI 경로: `Cv2.ImRead`가 경로를 ANSI 코드 페이지로 마샬링해 CP949 밖 문자(베트남어 폴더로 실측)에서 `ArgumentException`. `File.ReadAllBytes` + `Cv2.ImDecode`로 교체(`ImageFolderCamera`, `InspectionEngine` 템플릿). `ImDecode`는 빈 버퍼에 예외를 던지므로 0바이트 파일은 기존과 같은 디코드 실패로 처리
   - 2026-11-01 로컬(합성 이미지 400x300, 저장소 밖 폴더): 추가 후 새로고침해도 유지, 수신 30fps·드롭 0, Stain ROI 드래그 → (107,68,160x140), 첫 [저장]은 위치 확인 후 외부 폴더에 저장, 이후 [저장]은 같은 파일에 바로 저장, 샘플 레시피 해시 변화 없음. 이미지 없는 폴더 → "이미지 폴더 추가 실패: No supported images…", 크기 혼재 폴더 → "연결 실패: All images must have the same size. z_odd.png is 200x100, expected 400x300.", 이모지·베트남어 이름 폴더 재생 확인
-  - 재시작 후 폴더 목록 유지, 목록에서 제거, [새 레시피] 버튼은 미포함
+  - 재시작 후 폴더 목록 유지, 목록에서 제거, [새 레시피] 버튼은 미포함 → 다음 항목에서 추가
+- [x] 이미지 폴더 목록 유지·제거, 새 레시피 (단계 완료 후 추가)
+  - 설정 파일 `%LOCALAPPDATA%\CamBridge\settings.json`(`imageFolders`). 저장소 밖이라 고객 이미지 경로가 작업 트리에 들어가지 않고 클린 빌드에도 남음. 임시 파일에 쓴 뒤 교체(쓰는 중 종료돼도 이전 파일 유지), 저장 전마다 다시 읽어 두 인스턴스가 서로의 추가를 지우지 않음. 읽기 실패는 빈 목록 + 경고 로그(다음 저장이 덮어씀), 저장 실패는 경고 로그만(이번 실행에는 이미 추가됨)
+  - 없어진 저장 폴더는 목록에서만 숨기고 설정에는 남김: USB·네트워크 드라이브가 돌아오면 [새로고침]으로 복귀. 한계: 오프라인 UNC 경로는 SMB 타임아웃만큼 새로고침 전체를 늦춤(레지스트리가 모든 Provider를 기다림)
+  - [목록에서 제거]: `ImageFolderProvider.RemoveFolder`(추가와 같은 잠금, 배열 교체), 파일은 그대로라 확인 없음. 샘플 폴더(다음 실행에 다시 나타남)와 연결 중인 폴더는 비활성
+  - VM은 `Func<string, CameraInfo>` 대신 App 계층 `IImageFolderCatalog`(추가·제거·제거 가능 여부)만 앎. 구현 `ImageFolderCatalog`가 Provider와 설정 저장소를 묶고 App.xaml.cs가 조합. Core 변경 없음
+  - 검사 패널 [새로]: 도구를 지우고 이름 "새 레시피", 경로 없음(첫 [저장]은 위치 확인), 템플릿 기준 폴더는 샘플 없이 시작한 상태로. 변경 추적이 없어 도구가 있으면 확인. 도구 0개는 엔진 규칙(활성 도구 전부 통과 = OK)대로 모든 프레임 OK
+  - 재시작 후 복원된 폴더는 이번 실행에서 고른 적이 없으므로, 추가한 폴더에 연결할 때도 레시피 대화상자의 시작 폴더를 그 폴더로 설정
+  - 도구가 하나도 선택되지 않았을 때 설정 영역에 빈 Blob·템플릿 입력란이 그려지던 문제(기존에도 도구를 모두 삭제하면 발생, [새로]로 드러남): 명시 `ContentTemplate`을 암시적 `DataTemplate`으로 바꿔 선택이 없으면 아무것도 그리지 않음
+  - 설정 JSON은 `UnsafeRelaxedJsonEscaping`으로 한글 경로를 그대로 기록(직접 열어 볼 때 읽히도록, HTML에 넣지 않음)
+  - 라이브뷰 수정: 연결 해제 후 마지막 판정 배너·ROI·블롭 표시가 "영상 없음" 위에 남던 문제. `LiveView.Clear`가 오버레이 갱신 플래그를 세우지 않아 `UpdateOverlay`가 지우지 않았음
+  - 2026-11-03 로컬(합성 이미지 400x300, 저장소 밖 폴더): 획득 중 연결 해제·정지 후 연결 해제 모두 "영상 없음"만 남고 재연결 시 오버레이 다시 표시. 폴더 2개 추가 → settings.json 기록, 연결 중에는 [목록에서 제거] 비활성, 새로고침 유지 → 재시작 후 복원 → 1개 제거(파일 8개 그대로) → 재시작 후에도 빠져 있음. 복원된 폴더에 연결해 수신 30fps·드롭 0으로 획득 중 [새로] → 취소 시 도구 유지, 확인 시 도구 0개 "Recipe applied (0 tools)" 후 모든 프레임 OK → [+ Blob] → 첫 [저장]이 복원된 폴더에서 "다른 이름으로 저장" → 저장 확인. 작업 트리에 시험 파일 없음
+  - 같은 날 Windows 테스트: `WebcamCameraDeviceTests.ManualExposure_ChangesBrightnessAndIsLockedWhileAuto` 실패(최소·최대 노출 평균 150.2 → 149.1, 노출 무시). 변경 전 `main`(c73d831)에서도 151.9 → 150.8로 같은 실패라 이번 변경과 무관. 인계 체크리스트 B(웹캠)에 적은 "드라이버가 노출 설정을 무시하는 상태"와 같은 증상으로 보이며, USB 재연결 후 재확인 필요
 - [x] 프레임 저장 (단계 완료 후 추가) — 카메라 패널 [저장 폴더], [프레임 저장]
   - 대상물 샘플 수집용. 앱에 저장 경로가 없으면 pylon Viewer와 번갈아 카메라를 열어야 해서 판정을 보며 저장할 수 없음
   - `FrameCaptureConsumer`: 요청이 없으면 `Accepts`가 false라 큐와 풀링 버퍼를 쓰지 않음. 요청 1건에 다음 프레임 1장을 소비자 스레드에서 저장. 요청은 한 번에 하나라 용량 1 큐에서 넘치지 않음. 라이브뷰 슬롯에서 꺼내면 표시할 프레임을 뺏게 되어 파이프라인을 거침. 파일 쓰기는 `ImageSaveConsumer` 재사용
@@ -311,7 +323,7 @@ public sealed class Frame : IDisposable
 
 ### E. 6단계 — UI 연결 메모
 
-- 카메라 목록: `CameraRegistry`(ImageFolder는 `samples/part-inspection/images`를 기본 폴더로 등록, 실행 중 [폴더 추가]로 확장)
+- 카메라 목록: `CameraRegistry`(ImageFolder는 `samples/part-inspection/images`를 기본 폴더로 등록, 실행 중 [폴더 추가]로 확장, 추가한 폴더는 사용자 설정에서 다음 실행에 복원)
 - 라이브뷰: `AcquisitionPipeline.LiveView.TryTake()`를 `CompositionTarget.Rendering` 또는 `DispatcherTimer`에서 호출 → `WriteableBitmap`에 복사 후 프레임 Dispose
 - 통계 상태바: `pipeline.GetStatistics()`를 약 4Hz로 폴링(수신 FPS, 소비자별 처리 FPS·큐 길이·드롭, `TotalDroppedFrames`)
 - 검사: `InspectionEngine.Load("samples/part-inspection/part.recipe.json")` + `InspectionConsumer`. `ResultProduced`는 워커 스레드에서 발생 → Dispatcher 마샬링. 오버레이는 `InspectionResult.Overlays`(이미지 좌표)

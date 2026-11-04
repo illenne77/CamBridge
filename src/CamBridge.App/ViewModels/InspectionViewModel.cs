@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
+using System.Windows;
 using System.Windows.Threading;
 using CamBridge.App.Imaging;
 using CamBridge.Inspection;
@@ -30,6 +31,7 @@ namespace CamBridge.App.ViewModels;
 public sealed partial class InspectionViewModel : ObservableObject, IInspectionOverlay, IDisposable
 {
     private const string RecipeFilter = "검사 레시피 (*.recipe.json)|*.recipe.json|JSON (*.json)|*.json";
+    private const string NewRecipeName = "새 레시피";
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(250);
     private static readonly RoiRect NewToolRoi = new(20, 20, 80, 60);
 
@@ -46,7 +48,7 @@ public sealed partial class InspectionViewModel : ObservableObject, IInspectionO
     private bool _loading;
 
     [ObservableProperty]
-    private string _recipeName = "새 레시피";
+    private string _recipeName = NewRecipeName;
 
     [ObservableProperty]
     private string? _recipePath;
@@ -190,6 +192,30 @@ public sealed partial class InspectionViewModel : ObservableObject, IInspectionO
     public void Dispose() => _timer.Stop();
 
     // ---- Commands ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Starts an empty recipe, the state of a start without the sample. Edits are not tracked, so
+    /// it asks whenever there are tools to lose. With no tools every frame passes.
+    /// </summary>
+    [RelayCommand]
+    private void NewRecipe()
+    {
+        if (Tools.Count > 0 && MessageBox.Show(
+                $"검사 도구 {Tools.Count}개를 지우고 새 레시피를 시작합니다. 저장하지 않은 변경은 사라집니다.",
+                NewRecipeName, MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        Tools.Clear();
+        SelectedTool = null;
+        RecipeName = NewRecipeName;
+        RecipePath = null;
+        _baseDirectory = AppContext.BaseDirectory;
+        Message = null;
+        _version++;
+        _rebuild.Post(BuildRecipe());
+    }
 
     [RelayCommand]
     private void LoadRecipe()
