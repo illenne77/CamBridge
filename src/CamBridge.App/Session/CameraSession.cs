@@ -2,6 +2,7 @@ using CamBridge.App.Logging;
 using CamBridge.Core;
 using CamBridge.Inspection;
 using CamBridge.Pipeline;
+using CamBridge.Pipeline.Saving;
 using Microsoft.Extensions.Logging;
 
 namespace CamBridge.App.Session;
@@ -16,8 +17,15 @@ public sealed partial class CameraSession : IAsyncDisposable
     /// <summary>Inspection queue: a slow recipe drops old frames instead of lagging behind the camera.</summary>
     private static readonly ConsumerOptions InspectionQueue = new() { Capacity = 2, OverflowPolicy = QueueOverflowPolicy.DropOldest };
 
+    /// <summary>Capture queue: requests run one at a time, so only one frame can ever be waiting.</summary>
+    private static readonly ConsumerOptions CaptureQueue = new() { Capacity = 1 };
+
+    /// <summary>Well above a slow disk's save, so running out means frames stopped arriving (e.g. no trigger).</summary>
+    private static readonly TimeSpan CaptureTimeout = TimeSpan.FromSeconds(5);
+
     private readonly ILogger _logger;
     private readonly InspectionEngine? _initialEngine;
+    private readonly FrameCaptureConsumer _capture = new();
     private readonly LogThrottle _frameErrorLog = new(TimeSpan.FromSeconds(1));
 
     private CameraSession(ICamera camera, AcquisitionPipeline pipeline, InspectionEngine? engine, ILogger logger)
@@ -31,6 +39,8 @@ public sealed partial class CameraSession : IAsyncDisposable
             Inspection = new InspectionConsumer(engine);
             pipeline.AddConsumer(Inspection, InspectionQueue);
         }
+
+        pipeline.AddConsumer(_capture, CaptureQueue);
 
         camera.ErrorOccurred += OnErrorOccurred;
         camera.StateChanged += OnStateChanged;
@@ -106,6 +116,9 @@ public sealed partial class CameraSession : IAsyncDisposable
         await Camera.StopAcquisitionAsync().ConfigureAwait(false);
         await Pipeline.StopAsync().ConfigureAwait(false);
     }
+
+    /// <summary>Saves the next acquired frame into <paramref name="directory"/> and returns the file's path.</summary>
+    public Task<string> CaptureFrameAsync(string directory) => _capture.CaptureNextAsync(directory, CaptureTimeout);
 
     public async ValueTask DisposeAsync()
     {

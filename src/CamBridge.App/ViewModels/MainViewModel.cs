@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using CamBridge.App.Logging;
@@ -40,6 +41,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly DispatcherTimer _timer;
     private readonly Dispatcher _dispatcher;
     private long _logVersion = -1;
+    private int _capturedFrames;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(RemoveImageFolderCommand))]
@@ -47,17 +49,23 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsConnected))]
-    [NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(DisconnectCommand), nameof(StartCommand), nameof(StopCommand), nameof(RemoveImageFolderCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(DisconnectCommand), nameof(StartCommand), nameof(StopCommand), nameof(RemoveImageFolderCommand), nameof(CaptureFrameCommand))]
     private CameraSession? _session;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StateText))]
-    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(CaptureFrameCommand))]
     private CameraState _state = CameraState.Closed;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(DisconnectCommand), nameof(StartCommand), nameof(StopCommand), nameof(RefreshCamerasCommand), nameof(AddImageFolderCommand), nameof(RemoveImageFolderCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(DisconnectCommand), nameof(StartCommand), nameof(StopCommand), nameof(RefreshCamerasCommand), nameof(AddImageFolderCommand), nameof(RemoveImageFolderCommand), nameof(CaptureFrameCommand))]
     private bool _isBusy;
+
+    [ObservableProperty]
+    private string? _captureFolder;
+
+    [ObservableProperty]
+    private string? _captureText;
 
     [ObservableProperty]
     private LatestFrameSlot? _liveFrames;
@@ -240,6 +248,39 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanStop))]
     private Task StopAsync() => RunAsync("획득 정지 실패", () => Session!.StopAsync());
 
+    /// <summary>The count restarts, because samples are sorted into one folder per class.</summary>
+    [RelayCommand]
+    private void ChooseCaptureFolder()
+    {
+        var dialog = new OpenFolderDialog { Title = "프레임 저장 폴더 선택", InitialDirectory = CaptureFolder ?? string.Empty };
+        if (dialog.ShowDialog() == true)
+        {
+            CaptureFolder = dialog.FolderName;
+            _capturedFrames = 0;
+            CaptureText = null;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanCaptureFrame))]
+    private async Task CaptureFrameAsync()
+    {
+        if (CaptureFolder is null)
+        {
+            ChooseCaptureFolder();
+            if (CaptureFolder is null)
+            {
+                return;
+            }
+        }
+
+        await RunAsync("프레임 저장 실패", async () =>
+        {
+            string path = await Session!.CaptureFrameAsync(CaptureFolder);
+            _capturedFrames++;
+            CaptureText = string.Create(CultureInfo.InvariantCulture, $"{_capturedFrames:N0}장 저장: {Path.GetFileName(path)}");
+        });
+    }
+
     /// <summary>Stops the timer and releases the camera; called when the window closes.</summary>
     public async Task ShutdownAsync()
     {
@@ -266,6 +307,8 @@ public sealed partial class MainViewModel : ObservableObject
     private bool CanStart() => Session is not null && State == CameraState.Open && !IsBusy;
 
     private bool CanStop() => Session is not null && State == CameraState.Acquiring && !IsBusy;
+
+    private bool CanCaptureFrame() => Session is not null && State == CameraState.Acquiring && !IsBusy;
 
     private async Task RunAsync(string failureMessage, Func<Task> action)
     {

@@ -91,6 +91,12 @@
                         <Button Content="▶ 시작" Command="{Binding StartCommand}" />
                         <Button Content="■ 정지" Command="{Binding StopCommand}" />
                     </WrapPanel>
+                    <WrapPanel>
+                        <Button Content="저장 폴더" Command="{Binding ChooseCaptureFolderCommand}" />
+                        <Button Content="프레임 저장" Command="{Binding CaptureFrameCommand}" />
+                    </WrapPanel>
+                    <TextBlock Text="{Binding CaptureFolder}" ToolTip="{Binding CaptureFolder}" Foreground="DimGray" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding CaptureText}" TextTrimming="CharacterEllipsis" Margin="0,0,0,6" />
                     <TextBlock Text="{Binding EnumerationMessage}" Foreground="DarkOrange" TextWrapping="Wrap" />
                     <TextBlock Text="{Binding ErrorMessage}" Foreground="Firebrick" TextWrapping="Wrap" />
                 </StackPanel>
