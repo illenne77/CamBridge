@@ -13,6 +13,9 @@ public sealed record CameraInfo(string ProviderId, string DeviceId, string Vendo
 
     public CameraInterface Interface { get; init; } = CameraInterface.Unknown;
 
+    /// <summary>The camera's IPv4 address, for network cameras whose SDK reports it during enumeration; otherwise null.</summary>
+    public NetworkAddress? Network { get; init; }
+
     public string DisplayName =>
         !string.IsNullOrWhiteSpace(UserDefinedName) ? $"{UserDefinedName} ({Vendor} {Model})"
         : !string.IsNullOrWhiteSpace(SerialNumber) ? $"{Vendor} {Model} ({SerialNumber})"
