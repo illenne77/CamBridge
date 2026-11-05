@@ -88,15 +88,26 @@ public sealed class PylonCameraTests : IAsyncLifetime
     }
 
     /// <summary>Small frames at a high rate keep the tests fast.</summary>
-    private async Task OpenSmallAsync()
+    private Task OpenSmallAsync() => OpenSmallAsync(Camera, "Mono8");
+
+    private static async Task OpenSmallAsync(ICamera camera, string pixelFormat)
     {
-        await Camera.OpenAsync();
-        Camera.SetParameter(ParameterNames.PixelFormat, "Mono8");
-        Camera.SetParameter(ParameterNames.Width, 320L);
-        Camera.SetParameter(ParameterNames.Height, 240L);
-        Camera.ExposureTimeUs = 1000;
-        Camera.SetParameter(ParameterNames.AcquisitionFrameRate, 200.0);
-        Camera.TriggerMode = TriggerMode.Off;
+        await camera.OpenAsync();
+        camera.SetParameter(ParameterNames.PixelFormat, pixelFormat);
+        camera.SetParameter(ParameterNames.Width, 320L);
+        camera.SetParameter(ParameterNames.Height, 240L);
+        camera.ExposureTimeUs = 1000;
+        camera.SetParameter(ParameterNames.AcquisitionFrameRate, 200.0);
+        camera.TriggerMode = TriggerMode.Off;
+    }
+
+    /// <summary>The same emulated device through a provider with other options.</summary>
+    private static async Task<ICamera> CreateEmulatedAsync(PylonOptions options)
+    {
+        ICameraProvider provider = PylonProviderFactory.TryCreate(options, out string? reason)
+            ?? throw new InvalidOperationException(reason);
+        CameraInfo emulated = (await provider.EnumerateAsync()).First(c => c.Interface == CameraInterface.Emulated);
+        return provider.Create(emulated);
     }
 
     [PylonEmulatorFact]
@@ -246,6 +257,63 @@ public sealed class PylonCameraTests : IAsyncLifetime
         Camera.SetParameter(ParameterNames.PixelFormat, "Mono8");
 
         Assert.All(formats, f => Assert.Equal((PixelFormat.Bgr8, 320 * 3), (f.Format, f.Stride)));
+    }
+
+    [PylonEmulatorFact]
+    public async Task GrabObserver_SeesEveryGrabBeforeDelivery_WithConsecutiveIds()
+    {
+        var grabs = new ConcurrentQueue<PylonGrab>();
+        int delivered = 0;
+        await using ICamera camera = await CreateEmulatedAsync(new PylonOptions { BufferPool = _pool, GrabObserver = grabs.Enqueue });
+        camera.FrameReceived += (_, _) => Interlocked.Increment(ref delivered);
+        await OpenSmallAsync(camera, "Mono8");
+
+        await camera.StartAcquisitionAsync();
+        await WaitForAsync(() => grabs.Count >= 50);
+        await camera.StopAcquisitionAsync();
+        await camera.CloseAsync();
+
+        PylonGrab[] seen = grabs.ToArray();
+        Assert.All(seen, g => Assert.True(g.Succeeded));
+        Assert.All(seen.Zip(seen.Skip(1)), pair => Assert.Equal(pair.First.FrameId + 1, pair.Second.FrameId));
+        Assert.All(seen.Zip(seen.Skip(1)), pair => Assert.True(pair.Second.HostTimestamp >= pair.First.HostTimestamp));
+        Assert.All(seen, g => Assert.Equal(("Mono8", 320L * 240), (g.PixelFormat, g.PayloadSize)));
+        Assert.Equal(seen.Length, Volatile.Read(ref delivered)); // observed first, then delivered, frame by frame
+        Assert.Equal(0, _pool.Outstanding);
+    }
+
+    [PylonEmulatorFact]
+    public async Task DeliverFramesOff_KeepsAnUnsupportedFormat_AndOnlyObserves()
+    {
+        var grabs = new ConcurrentQueue<PylonGrab>();
+        int delivered = 0;
+        await using ICamera camera = await CreateEmulatedAsync(new PylonOptions
+        {
+            BufferPool = _pool,
+            DeliverFrames = false,
+            ReplaceUnsupportedPixelFormat = false,
+            GrabObserver = grabs.Enqueue,
+        });
+        camera.FrameReceived += (_, _) => Interlocked.Increment(ref delivered);
+
+        // The emulator returns to its defaults when closed, so keeping the format across a reopen is checked on a real
+        // camera (PylonRealCameraTests.ObserverOnly_CountsAFormatTheSourceCannotDeliver).
+        await OpenSmallAsync(camera, "Mono12");
+        try
+        {
+            await camera.StartAcquisitionAsync();
+            await WaitForAsync(() => grabs.Count >= 20);
+            await camera.StopAcquisitionAsync();
+        }
+        finally
+        {
+            camera.SetParameter(ParameterNames.PixelFormat, "Mono8"); // leave the shared emulated device as the other tests expect
+            await camera.CloseAsync();
+        }
+
+        Assert.Equal(0, Volatile.Read(ref delivered));
+        Assert.All(grabs, g => Assert.Equal((true, "Mono12", 320L * 240 * 2), (g.Succeeded, g.PixelFormat, g.PayloadSize)));
+        Assert.Equal(0, _pool.Outstanding);
     }
 
     [PylonEmulatorFact]
