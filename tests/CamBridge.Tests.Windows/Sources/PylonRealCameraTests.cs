@@ -131,6 +131,22 @@ public sealed class PylonRealCameraTests(ITestOutputHelper output) : IAsyncLifet
     }
 
     [PylonRealCameraFact]
+    public void Enumeration_ReportsTheGigEAddress_WithoutOpening()
+    {
+        CameraInfo info = Camera.Info;
+        if (info.Interface != CameraInterface.GigE)
+        {
+            Assert.Null(info.Network); // USB3 has no IP address
+            return;
+        }
+
+        output.WriteLine($"Network: {info.Network}, gateway {info.Network?.DefaultGateway?.ToString() ?? "none"}");
+        Assert.NotNull(info.Network);
+        Assert.Equal(System.Net.Sockets.AddressFamily.InterNetwork, info.Network.IpAddress.AddressFamily);
+        Assert.NotNull(info.Network.PrefixLength);
+    }
+
+    [PylonRealCameraFact]
     public async Task EveryListedReadableName_CanBeRead()
     {
         await Camera.OpenAsync();

@@ -43,6 +43,11 @@ internal sealed class PylonProvider(PylonOptions options) : ICameraProvider
     }
 
     /// <summary>The pylon full name is the device's unique key and is what <see cref="PylonCamera"/> opens.</summary>
+    /// <remarks>
+    /// GigE cameras report their address, mask and gateway (pylon 26.09.2, acA640-120gm: "192.168.10.2", "255.255.255.0",
+    /// "0.0.0.0"). The host adapter's address (<see cref="CameraInfoKey.NetworkInterfaceIpAddress"/>) was absent there,
+    /// so it is not mapped; the adapter is found by subnet instead.
+    /// </remarks>
     internal static CoreCameraInfo CreateInfo(ICameraInfo pylon)
     {
         string Get(string key) => pylon.ContainsKey(key) ? pylon[key] ?? string.Empty : string.Empty;
@@ -55,6 +60,7 @@ internal sealed class PylonProvider(PylonOptions options) : ICameraProvider
             SerialNumber = serial.Length == 0 ? null : serial,
             UserDefinedName = userName.Length == 0 ? null : userName,
             Interface = InterfaceOf(deviceType),
+            Network = NetworkAddress.TryCreate(Get(CameraInfoKey.DeviceIpAddress), Get(CameraInfoKey.SubnetMask), Get(CameraInfoKey.DefaultGateway)),
         };
     }
 

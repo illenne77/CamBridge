@@ -108,6 +108,7 @@ public sealed class PylonCameraTests : IAsyncLifetime
         Assert.True(emulated.Length >= 2);
         Assert.All(emulated, c => Assert.Equal(PylonProviderFactory.ProviderId, c.ProviderId));
         Assert.All(emulated, c => Assert.False(string.IsNullOrEmpty(c.SerialNumber)));
+        Assert.All(emulated, c => Assert.Null(c.Network)); // no network transport
         Assert.Equal(emulated.Length, emulated.Select(c => c.DeviceId).Distinct().Count());
         Assert.Equal("Basler pylon", _provider.VendorName);
     }
