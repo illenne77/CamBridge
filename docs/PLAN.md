@@ -366,7 +366,7 @@ Claude와 함께 진행(앱·도구 쪽 준비 완료, 실행은 카메라 필�
 
 - [x] 실물 검증 테스트: `dotnet test tests/CamBridge.Tests.Windows --filter "FullyQualifiedName~PylonRealCamera" --logger "console;verbosity=detailed"` — 12개 통과(2026-10-31, pylon 26.09.2, 전송 손실 관련 4개 포함). SFNC 1.x 노드(`ExposureTimeAbs`, `GainRaw`, `AcquisitionFrameRateAbs`), BlockID 1부터, 소프트웨어·하드웨어 트리거 입력 대기, 전송 통계 확인. 하드웨어 트리거는 입력 없이 프레임이 나오지 않는 것까지만 확인(실제 신호 미입력)
   - 2026-11-03 PR #2와 #3을 병합한 `main`(`c73d831`)에 프레임 저장을 더한 커밋(`58c77ca`)에서 12개 통과, 건너뜀 0. Windows 테스트 전체는 106개 통과, 기존 웹캠 `ManualExposure` 1개 실패
-  - 2026-11-05 PR #5까지 병합한 `main`(`a6a244`)에서 Windows 테스트 전체 124개 통과, 실패·건너뜀 0(실물 카메라와 웹캠 연결 상태, 웹캠 `ManualExposure` 포함)
+  - 2026-11-05 PR #5까지 병합한 `main`(`a6a2444`)에서 Windows 테스트 전체 124개 통과, 실패·건너뜀 0(실물 카메라와 웹캠 연결 상태, 웹캠 `ManualExposure` 포함)
   - FreeRun(100fps 5초)은 22회 중 첫 실행 1회만 실패: 버퍼 언더런 10, 패킷 손실·재전송 0. 드롭 위치 기록 추가 전이라 어디서 끊겼는지 모름. 같은 패킷 크기 576으로 8회 반복은 모두 통과. **원인 미확인**
 - [x] 앱 확인: "Basler pylon" 그룹에 표시, 연결·라이브뷰·파라미터 패널 동작. 연속 21분 33초, 127fps, 164,272프레임, 드롭 0(카메라측 0), BlockID 65535 순환 2회 통과. 노출 변경이 영상 밝기에 반영되고 초점을 맞춘 영상에서 글자가 읽힘. 샘플 레시피는 실물 영상과 맞지 않아 전부 NG이며, 실제 대상물 검사는 미확인
 - [x] 분리 감지: 획득 중 랜선 분리 → 첫 불완전 프레임 경고 후 약 1.5초에 `Disconnected` → 상태 "오류"(하트비트 1초, Windows 링크 Down 기록보다 0.4초 빠름). 다시 꽂으면 링크가 한 번 더 끊겼다 복구되고(PoE 재시작으로 추정) 저장한 IP 유지. 연결 해제 → 연결 → 시작으로 복구
