@@ -69,6 +69,8 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
     private BlockIdUnwrapper _ids = new(sixteenBitWrap: false);
     private bool _isGigE;
     private PixelType _reportedUnsupported;
+    private PixelType _namedPixelType; // grab thread only
+    private string? _pixelTypeName;
 
     public CoreCameraInfo Info { get; } = info ?? throw new ArgumentNullException(nameof(info));
 
@@ -463,7 +465,7 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
 
             // A format left over from another tool (e.g. Mono12) would only produce errors here.
             IEnumParameter pixelFormat = camera.Parameters[PLCamera.PixelFormat];
-            if (!IsSupportedPixelFormat(pixelFormat.GetValueOrDefault(string.Empty)))
+            if (options.ReplaceUnsupportedPixelFormat && !IsSupportedPixelFormat(pixelFormat.GetValueOrDefault(string.Empty)))
             {
                 pixelFormat.TrySetValue(PLCamera.PixelFormat.Mono8);
             }
@@ -549,18 +551,37 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
     private void OnImageGrabbed(object? sender, ImageGrabbedEventArgs e)
     {
         // Runs on pylon's grab loop thread. Exceptions would stop pylon's event notification.
+        long arrived = Stopwatch.GetTimestamp();
         try
         {
             IGrabResult result = e.GrabResult;
+            Action<PylonGrab>? observer = options.GrabObserver;
             if (!result.GrabSucceeded)
             {
                 // A failed grab keeps its block ID, so the loss counts now even if every frame fails.
+                long? lostId = _ids.NextLost(result.BlockID);
+                if (observer is not null)
+                {
+                    Observe(observer, new PylonGrab(false, lostId, unchecked((int)result.ErrorCode), result.ErrorDescription,
+                        result.Timestamp, arrived, (long)result.PayloadSize, string.Empty));
+                }
+
                 RaiseError(CameraErrorKind.FrameError, string.Create(CultureInfo.InvariantCulture,
-                    $"Grab failed (0x{result.ErrorCode:X}): {result.ErrorDescription}"), lostFrameId: _ids.NextLost(result.BlockID));
+                    $"Grab failed (0x{result.ErrorCode:X}): {result.ErrorDescription}"), lostFrameId: lostId);
                 return;
             }
 
             long frameId = _ids.Next(result.BlockID);
+            if (observer is not null)
+            {
+                Observe(observer, new PylonGrab(true, frameId, 0, null, result.Timestamp, arrived, (long)result.PayloadSize, NameOf(result.PixelTypeValue)));
+            }
+
+            if (!options.DeliverFrames)
+            {
+                return; // observer only: no copy or conversion, so any pixel format can be counted
+            }
+
             using IDataContainer? container = result.Container;
             if (container is null)
             {
@@ -594,6 +615,32 @@ internal sealed class PylonCamera(CoreCameraInfo info, PylonOptions options) : I
         {
             RaiseError(CameraErrorKind.FrameError, $"Frame handling failed: {ex.Message}", ex);
         }
+    }
+
+    private void Observe(Action<PylonGrab> observer, PylonGrab grab)
+    {
+        try
+        {
+            observer(grab);
+        }
+#pragma warning disable CA1031 // The caller's observer must not stop acquisition or the frame's delivery.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            RaiseError(CameraErrorKind.Other, $"Grab observer failed: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>The pixel type's name, built once per type: Enum.ToString allocates, and this runs for every frame.</summary>
+    private string NameOf(PixelType type)
+    {
+        if (type != _namedPixelType || _pixelTypeName is null)
+        {
+            _namedPixelType = type;
+            _pixelTypeName = type.ToString();
+        }
+
+        return _pixelTypeName;
     }
 
     /// <summary>Copies (or converts) the grab buffer into a pooled frame; null for unsupported formats.</summary>

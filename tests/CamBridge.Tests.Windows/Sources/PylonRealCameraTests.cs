@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using CamBridge.Core;
 using CamBridge.Pipeline;
 using CamBridge.Pipeline.Statistics;
@@ -236,6 +237,44 @@ public sealed class PylonRealCameraTests(ITestOutputHelper output) : IAsyncLifet
         Assert.Equal(0, gaps);
         Assert.InRange(fps, RequestedFps * 0.9, RequestedFps * 1.1);
         Assert.Equal(0, _pool.Outstanding);
+    }
+
+    [PylonRealCameraFact]
+    public async Task ObserverOnly_CountsAFormatTheSourceCannotDeliver()
+    {
+        // A transport measurement under another program's settings: Mono12 stays, nothing is copied, every grab is seen.
+        var grabs = new ConcurrentQueue<PylonGrab>();
+        int delivered = 0;
+        ICameraProvider provider = PylonProviderFactory.TryCreate(
+            new PylonOptions { DeliverFrames = false, ReplaceUnsupportedPixelFormat = false, GrabObserver = grabs.Enqueue }, out _)!;
+        await using ICamera camera = provider.Create(Camera.Info);
+        camera.FrameReceived += (_, _) => Interlocked.Increment(ref delivered);
+        await camera.OpenAsync();
+        camera.TriggerMode = TriggerMode.Off;
+        camera.SetParameter(ParameterNames.PixelFormat, "Mono12");
+        await camera.CloseAsync();
+        await camera.OpenAsync(); // a powered camera keeps it, and nothing replaces it with Mono8
+        Assert.Equal("Mono12", camera.GetParameter(ParameterNames.PixelFormat));
+        long pixels = Convert.ToInt64(camera.GetParameter(ParameterNames.Width), CultureInfo.InvariantCulture)
+            * Convert.ToInt64(camera.GetParameter(ParameterNames.Height), CultureInfo.InvariantCulture);
+        try
+        {
+            await camera.StartAcquisitionAsync();
+            await Task.Delay(TimeSpan.FromSeconds(1));
+            await camera.StopAcquisitionAsync();
+        }
+        finally
+        {
+            camera.SetParameter(ParameterNames.PixelFormat, "Mono8");
+            await camera.CloseAsync();
+        }
+
+        PylonGrab[] seen = grabs.ToArray();
+        output.WriteLine($"{seen.Length} grabs, first {seen.FirstOrDefault()}");
+        Assert.NotEmpty(seen);
+        Assert.Equal(0, Volatile.Read(ref delivered));
+        Assert.All(seen, g => Assert.Equal((true, "Mono12", pixels * 2), (g.Succeeded, g.PixelFormat, g.PayloadSize)));
+        Assert.All(seen.Zip(seen.Skip(1)), pair => Assert.Equal(pair.First.FrameId + 1, pair.Second.FrameId));
     }
 
     [PylonRealCameraFact]

@@ -395,6 +395,13 @@ Claude와 함께 진행(앱·도구 쪽 준비 완료, 실행은 카메라 필�
   - pylon 26.09.2의 GigE 열거 정보로 확인: `IpAddress` "192.168.10.2", `SubnetMask` "255.255.255.0", `DefaultGateway` "0.0.0.0"(→ 게이트웨이 없음)
   - 넣지 않은 것: 호스트 NIC 주소 키(`NetworkInterfaceIpAddress`)는 이 카메라의 열거 정보에 없었음. 현재 IP 구성(`IpConfigCurrent` = "5")은 이 카메라(SFNC 1.x)에 영구 IP·DHCP·LLA 불리언 노드가 없어 비트 의미를 실물로 대조할 수 없었음
   - 테스트: 주소 해석 14개, 실물 GigE 카메라의 주소(`192.168.10.2/24`), 에뮬레이터는 주소 없음. Windows 테스트 전체 125개 통과, 건너뜀 0
+- [x] 전송 진단용 grab 관찰(2026-11-06): 다른 프로그램의 설정 그대로 전송만 재기 위한 `PylonOptions` 3개. 기본값은 지금 동작 그대로
+  - `GrabObserver`: 모든 grab 결과(실패 포함)를 복사·변환 전에 grab 스레드에서 받음. 펼친 FrameId, 오류 코드, 장치·호스트 타임스탬프, payload 크기, 픽셀 포맷 이름. block ID가 0인 실패는 FrameId가 없고 다음 정상 프레임 앞의 공백으로 나타남
+  - `DeliverFrames = false`: 복사·변환과 `FrameReceived`를 건너뜀. 이 소스가 화면에 낼 수 없는 포맷(Mono12 등)도 셈
+  - `ReplaceUnsupportedPixelFormat = false`: 열 때 Mono8로 바꾸지 않음
+  - 실물 확인: Mono12에서 관찰만 켜고 1초 받음, 프레임 전달 0, 모든 grab의 payload가 화소 수 × 2, FrameId 연속. 닫았다 열어도 Mono12 유지
+  - 발견: 에뮬레이터는 닫으면 설정이 기본값으로 돌아가, 기존 `Open_ReplacesAnUnsupportedPixelFormatWithMono8`은 에뮬레이터에서 교체 동작을 가려내지 못함(교체가 없어도 Mono8). 다시 열어도 유지되는지는 실물 테스트로 확인
+  - Windows 테스트 전체 128개 통과, 건너뜀 0. pylon SDK 없이 빌드 확인
 - [x] 카메라측 드롭(패킷 손실·재전송) 통계를 실물로 시연(2026-10-31) — 소켓 드라이버 버퍼를 최소(1 KB)로 줄여 호스트에서 실제 패킷 손실을 일으킴. 케이블·스위치 결함이 아닌 의도적 손실. 파라미터 패널이나 Soak `--set StreamType=SocketDriver,SocketBufferSize=1,GevSCPSPacketSize=6000`으로 재현
   - 측정(640×480, 120fps, 소켓 1 KB): 패킷 9000은 재전송 요청이 프레임당 약 1회(5초 600~602), 실패 0. 6000은 10회 실행에서 재전송 875~2,184, 실패 0~16. 3000은 4회 중 3회 실패 0~2, 1회 실패 271. 4500·1500·1000·576은 전부 실패. 기본값(필터 드라이버, 소켓 4096 KB)과 소켓 16 KB 이상 + 패킷 576은 실패 없음
   - 발견한 결함: 드롭을 다음 정상 프레임의 ID 공백으로만 세어, 모든 프레임이 실패하면 드롭이 0으로 표시됨. 실패한 grab도 유효한 BlockID를 돌려주는 것을 확인
