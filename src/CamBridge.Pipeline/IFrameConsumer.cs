@@ -21,4 +21,18 @@ public interface IFrameConsumer
     bool Accepts(Frame frame) => true;
 
     ValueTask ProcessAsync(Frame frame, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Runs the processing path once on a blank sample before frames flow, so first-call costs
+    /// (loading assemblies and native libraries, JIT, scanning of newly built files) are paid
+    /// before acquisition instead of stalling the first frames behind a full queue.
+    /// </summary>
+    /// <remarks>
+    /// Called by <see cref="AcquisitionPipeline.WarmUp"/> while the pipeline is stopped, so never
+    /// concurrently with <see cref="ProcessAsync"/>. Must leave no visible trace: no files, counters
+    /// or events. The sample is owned by the pipeline.
+    /// </remarks>
+    void WarmUp(Frame sample)
+    {
+    }
 }

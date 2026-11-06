@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using CamBridge.Core;
 using CamBridge.Pipeline.Statistics;
 using Microsoft.Extensions.Logging;
@@ -51,6 +53,53 @@ public sealed partial class AcquisitionPipeline : IAsyncDisposable
         ThrowIfRunning();
 
         _runners.Add(new ConsumerRunner(consumer, options, _timeProvider, _logger));
+    }
+
+    /// <summary>
+    /// Runs every consumer's <see cref="IFrameConsumer.WarmUp"/> on blank Mono8 and Bgr8 frames of the
+    /// camera's current size, so the first real frames do not wait behind first-call costs. Call after
+    /// the camera is configured and before <see cref="Start"/>. Statistics are not affected.
+    /// </summary>
+    /// <remarks>
+    /// Both formats run because the delivered format is a source detail (a Bayer sensor arrives as
+    /// Bgr8, for example) that the camera's PixelFormat parameter does not state. The size must be
+    /// real: a smaller sample would leave ROIs outside the image and skip the actual processing.
+    /// </remarks>
+    /// <returns>Per-consumer duration and error, or empty when the camera's size cannot be read.</returns>
+    public IReadOnlyList<ConsumerWarmUp> WarmUp()
+    {
+        ThrowIfRunning();
+        if (_runners.Count == 0)
+        {
+            return [];
+        }
+
+        if (!TryReadFrameSize(out int width, out int height, out string? reason))
+        {
+            LogWarmUpSkipped(_logger, reason);
+            return [];
+        }
+
+        Frame[] samples = [BlankFrame(width, height, PixelFormat.Mono8), BlankFrame(width, height, PixelFormat.Bgr8)];
+        try
+        {
+            var results = new List<ConsumerWarmUp>(_runners.Count);
+            foreach (ConsumerRunner runner in _runners)
+            {
+                ConsumerWarmUp result = runner.WarmUp(samples);
+                LogWarmedUp(_logger, result.Consumer, width, height, result.Duration.TotalMilliseconds);
+                results.Add(result);
+            }
+
+            return results;
+        }
+        finally
+        {
+            foreach (Frame sample in samples)
+            {
+                sample.Dispose();
+            }
+        }
     }
 
     /// <summary>Resets statistics, starts consumer workers and attaches to the camera.</summary>
@@ -180,6 +229,45 @@ public sealed partial class AcquisitionPipeline : IAsyncDisposable
         }
     }
 
+    private bool TryReadFrameSize(out int width, out int height, [NotNullWhen(false)] out string? reason)
+    {
+        width = height = 0;
+        try
+        {
+            width = Convert.ToInt32(_camera.GetParameter(ParameterNames.Width), CultureInfo.InvariantCulture);
+            height = Convert.ToInt32(_camera.GetParameter(ParameterNames.Height), CultureInfo.InvariantCulture);
+        }
+#pragma warning disable CA1031 // Any source may refuse or lack the parameters; warm-up is then skipped, not fatal.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            reason = $"the camera's size could not be read ({ex.Message})";
+            return false;
+        }
+
+        if (width <= 0 || height <= 0)
+        {
+            reason = string.Create(CultureInfo.InvariantCulture, $"the camera reports a size of {width}x{height}");
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private static Frame BlankFrame(int width, int height, PixelFormat format)
+    {
+        Frame frame = Frame.Rent(width, height, format, frameId: 0, DateTime.UtcNow);
+        frame.GetWritableData().Clear(); // pooled buffers keep old contents; keep the sample deterministic
+        return frame;
+    }
+
     [LoggerMessage(Level = LogLevel.Error, Message = "Frame handling failed on the camera thread")]
     private static partial void LogFrameHandlingFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Warmed up {Consumer} on {Width}x{Height} samples in {Milliseconds:0} ms")]
+    private static partial void LogWarmedUp(ILogger logger, string consumer, int width, int height, double milliseconds);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Consumer warm-up skipped: {Reason}")]
+    private static partial void LogWarmUpSkipped(ILogger logger, string reason);
 }

@@ -53,6 +53,29 @@ internal sealed partial class ConsumerRunner : IDisposable
 
     public bool Accepts(Frame frame) => _consumer.Accepts(frame);
 
+    /// <summary>Runs the consumer's warm-up on each sample. Only while stopped (the worker is not running).</summary>
+    public ConsumerWarmUp WarmUp(IReadOnlyList<Frame> samples)
+    {
+        long started = _timeProvider.GetTimestamp();
+        string? error = null;
+        foreach (Frame sample in samples)
+        {
+            try
+            {
+                _consumer.WarmUp(sample);
+            }
+#pragma warning disable CA1031 // Warm-up is only an optimization: a failure is logged and the start goes on.
+            catch (Exception ex)
+#pragma warning restore CA1031
+            {
+                error ??= ex.Message;
+                LogWarmUpFault(_logger, _consumer.Name, sample.PixelFormat, ex);
+            }
+        }
+
+        return new ConsumerWarmUp(_consumer.Name, _timeProvider.GetElapsedTime(started), error);
+    }
+
     /// <summary>Queues a frame, taking ownership of the handle. Called on the camera thread.</summary>
     public void Enqueue(Frame frame)
     {
@@ -240,4 +263,7 @@ internal sealed partial class ConsumerRunner : IDisposable
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Consumer {Consumer} failed on frame {FrameId}")]
     private static partial void LogConsumerFault(ILogger logger, string consumer, long frameId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Consumer {Consumer} failed to warm up on a {PixelFormat} sample")]
+    private static partial void LogWarmUpFault(ILogger logger, string consumer, PixelFormat pixelFormat, Exception exception);
 }

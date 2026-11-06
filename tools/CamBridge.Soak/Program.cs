@@ -13,9 +13,12 @@ using CamBridge.Sources.Pylon;
 //   dotnet run -c Release --project tools/CamBridge.Soak -- [--source pylon|folder] [--minutes 30]
 //       [--emulator | --serial <S/N>] [--fps 120] [--exposure 1000] [--width 640] [--height 480]
 //       [--set GevSCPSPacketSize=8192,Name=Value] [--save-every 100] [--interval 10] [--out <dir>] [--keep-images]
+//       [--recipe <path>] [--no-consumer-warmup]
 // pylon uses the first real camera, or the given serial; --emulator uses an emulated one instead
 // (PYLON_CAMEMU is set to 2 for this process when missing). Width and height default to the camera's
-// current size on a real camera and to 640x480 on the emulator.
+// current size on a real camera and to 640x480 on the emulator. The recipe defaults to the part
+// sample. Consumers are warmed up before acquisition unless --no-consumer-warmup (for comparison);
+// the first five seconds are reported with what loaded after acquisition started.
 Dictionary<string, string> options = ParseArgs(args);
 string source = options.GetValueOrDefault("source", "pylon");
 TimeSpan duration = TimeSpan.FromMinutes(Number("minutes", 30));
@@ -53,8 +56,10 @@ camera.StateChanged += (_, e) =>
 
 await camera.OpenAsync();
 Configure(camera);
-string recipePath = FindUpwards(Path.Combine("samples", "part-inspection", "part.recipe.json"))
-    ?? throw new FileNotFoundException("Sample recipe not found; run from the repository.");
+string recipePath = options.TryGetValue("recipe", out string? recipeOption)
+    ? Path.GetFullPath(recipeOption)
+    : FindUpwards(Path.Combine("samples", "part-inspection", "part.recipe.json"))
+      ?? throw new FileNotFoundException("Sample recipe not found; run from the repository.");
 
 using InspectionEngine engine = InspectionEngine.Load(recipePath);
 using var inspection = new InspectionConsumer(engine);
@@ -87,9 +92,33 @@ Console.CancelKeyPress += (_, e) =>
     stop.Cancel();
 };
 
+TimeSpan startupWindow = TimeSpan.FromSeconds(5);
+using var startup = new StartupProbe(camera);
+if (options.ContainsKey("no-consumer-warmup"))
+{
+    Console.WriteLine("Consumer warm-up: off");
+}
+else
+{
+    startup.BeginWarmUp();
+    IReadOnlyList<ConsumerWarmUp> warmed = pipeline.WarmUp();
+    Console.WriteLine("Consumer warm-up: " + (warmed.Count == 0 ? "skipped" : string.Join(", ", warmed.Select(w =>
+        string.Create(CultureInfo.InvariantCulture, $"{w.Consumer} {w.Duration.TotalMilliseconds:0} ms{(w.Error is null ? "" : $" (failed: {w.Error})")}")))));
+}
+
 pipeline.Start();
+startup.BeforeAcquisitionStart();
 await camera.StartAcquisitionAsync();
+startup.AfterAcquisitionStart();
 var clock = Stopwatch.StartNew();
+
+string? startupReport = null;
+Task startupCheck = Task.Run(async () =>
+{
+    await Task.Delay(startupWindow, stop.Token).ConfigureAwait(false);
+    startupReport = startup.Report(pipeline.GetStatistics(), startupWindow);
+    Console.Write(startupReport);
+}, stop.Token);
 
 // Stand-in for the UI: take the latest frame at display rate, as the WPF live view does.
 Task display = Task.Run(async () =>
@@ -134,6 +163,14 @@ catch (OperationCanceledException)
 {
 }
 
+try
+{
+    await startupCheck; // a run shorter than the window has no startup report
+}
+catch (OperationCanceledException)
+{
+}
+
 await camera.CloseAsync();
 await pipeline.DisposeAsync(); // releases the frame held by the live view slot
 await camera.DisposeAsync();
@@ -149,6 +186,9 @@ using (var summary = new StringWriter(CultureInfo.InvariantCulture))
     {
         summary.WriteLine($"  info  Transport            {transport}");
     }
+
+    summary.WriteLine($"  info  Recipe               {recipePath}, consumer warm-up {(options.ContainsKey("no-consumer-warmup") ? "off" : "on")}");
+    summary.Write(startupReport ?? string.Empty);
 
     summary.WriteLine(passed ? "RESULT: PASS" : "RESULT: FAIL");
     Console.Write(summary);

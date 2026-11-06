@@ -78,20 +78,23 @@ public sealed class InspectionConsumer : IFrameConsumer, IDisposable
 
     public ValueTask ProcessAsync(Frame frame, CancellationToken cancellationToken)
     {
-        if (Interlocked.Exchange(ref _pending, null) is Setup next)
-        {
-            Setup previous = _current;
-            _current = next;
-            previous.Release();
-        }
-
-        Setup setup = _current;
+        Setup setup = TakeUpPendingEngine();
         InspectionResult result = setup.Engine.Inspect(frame);
         Interlocked.Increment(ref result.Verdict == Verdict.Ok ? ref _okCount : ref _ngCount);
         Volatile.Write(ref _latest, result);
         setup.CsvLogger?.Write(result);
         ResultProduced?.Invoke(this, new InspectionResultEventArgs(result));
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Inspects the sample once with the current recipe (a pending replacement is swapped in first)
+    /// and discards the result: no counters, latest result, event or CSV row.
+    /// </summary>
+    public void WarmUp(Frame sample)
+    {
+        ArgumentNullException.ThrowIfNull(sample);
+        _ = TakeUpPendingEngine().Engine.Inspect(sample);
     }
 
     /// <summary>Releases owned engines and loggers. Stop the pipeline first.</summary>
@@ -104,6 +107,19 @@ public sealed class InspectionConsumer : IFrameConsumer, IDisposable
 
         Interlocked.Exchange(ref _pending, null)?.Release();
         _current.Release();
+    }
+
+    /// <summary>Swaps in a pending replacement, if any, and returns the setup to use. Worker side only.</summary>
+    private Setup TakeUpPendingEngine()
+    {
+        if (Interlocked.Exchange(ref _pending, null) is Setup next)
+        {
+            Setup previous = _current;
+            _current = next;
+            previous.Release();
+        }
+
+        return _current;
     }
 
     private sealed record Setup(InspectionEngine Engine, CsvResultLogger? CsvLogger, bool Owned)
