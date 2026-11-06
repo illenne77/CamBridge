@@ -14,23 +14,10 @@ namespace CamBridge.Tests.Sources;
 /// </summary>
 public class ImageFolderPipelineTests
 {
-    private static string RepositoryRoot()
-    {
-        for (DirectoryInfo? dir = new(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "CamBridge.sln")))
-            {
-                return dir.FullName;
-            }
-        }
-
-        throw new DirectoryNotFoundException("Repository root (CamBridge.sln) not found.");
-    }
-
     [Fact]
     public async Task CommittedDemoSamples_GiveVerdictsMatchingFileNames()
     {
-        string sampleDir = Path.Combine(RepositoryRoot(), "samples", "part-inspection");
+        string sampleDir = RepositoryPaths.Sample("part-inspection");
         string imagesDir = Path.Combine(sampleDir, DemoSampleSet.ImagesFolder);
         string[] names = Directory.GetFiles(imagesDir, "*.png").Select(Path.GetFileName).Order(StringComparer.Ordinal).ToArray()!;
         Assert.Equal(20, names.Length);
