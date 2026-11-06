@@ -47,6 +47,17 @@ public sealed partial class ImageSaveConsumer : IFrameConsumer
         LastSavedPath = path;
     }
 
+    /// <summary>
+    /// Resolves the sample's path and encodes it in the configured format, then discards both;
+    /// no directory or file is created.
+    /// </summary>
+    public void WarmUp(Frame sample)
+    {
+        ArgumentNullException.ThrowIfNull(sample);
+        _ = BuildPath(sample); // the file name pattern's regex loads its assembly on first use
+        _ = _encoder.Encode(sample, _options.Format, _options.JpegQuality);
+    }
+
     /// <summary>Resolves the file path for a frame. Throws if the pattern escapes the root directory.</summary>
     public string BuildPath(Frame frame)
     {

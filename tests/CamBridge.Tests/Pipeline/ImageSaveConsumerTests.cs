@@ -78,6 +78,20 @@ public sealed class ImageSaveConsumerTests : IDisposable
         Assert.Equal(new Size(32, 16), decoded.Size());
     }
 
+    [Theory]
+    [InlineData(PixelFormat.Mono8, ImageFileFormat.Png)]
+    [InlineData(PixelFormat.Bgr8, ImageFileFormat.Jpeg)]
+    public void WarmUp_EncodesWithoutWritingAFile(PixelFormat format, ImageFileFormat fileFormat)
+    {
+        ImageSaveConsumer consumer = Consumer(fileFormat);
+        using Frame sample = GradientFrame(format, 32, 16);
+
+        consumer.WarmUp(sample);
+
+        Assert.False(Directory.Exists(_root));
+        Assert.Null(consumer.LastSavedPath);
+    }
+
     [Fact]
     public async Task SaveEveryNth_SkipsFrames()
     {

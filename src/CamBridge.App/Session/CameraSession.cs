@@ -99,6 +99,8 @@ public sealed partial class CameraSession : IAsyncDisposable
 
     public async Task StartAsync()
     {
+        // Off the UI thread: the first warm-up after a build can take several hundred milliseconds.
+        await Task.Run(Pipeline.WarmUp).ConfigureAwait(false);
         Pipeline.Start();
         try
         {
